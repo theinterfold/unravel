@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 #
-# Brings up a CRISP devnet on non-default ports, so it can coexist with another stack already
-# holding 8545 / 13151 / 9201-9205.
+# Brings up a CRISP devnet.
+#
+# Defaults to the standard ports (anvil 8545, program server 13151, ciphernodes 9201-9205) because
+# that is what every wallet and tool already expects — MetaMask ships a "Localhost 8545" network,
+# and pointing it anywhere else is a step people forget, producing a NetworkError that reads like a
+# contract revert.
+#
+# Set ANVIL_PORT to something else to run an isolated stack beside an existing devnet; every other
+# port shifts with it so the two do not collide.
 #
 # This deliberately does NOT use `pnpm dev:up`. That script hardcodes 8545, and its cleanup trap
 # runs `pkill -9 -f anvil` / `pkill -9 -f "interfold start"` — which match by process name, so it
@@ -15,10 +22,18 @@
 set -euo pipefail
 
 CRISP_DIR="${CRISP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../interfold/.claude/worktrees/survival-game/examples/CRISP" && pwd)}"
-PORT="${ANVIL_PORT:-8546}"
+PORT="${ANVIL_PORT:-8545}"
 RPC="http://127.0.0.1:${PORT}"
-PROGRAM_PORT="${PROGRAM_SERVER_PORT:-13152}"
 LOGS="${LOGS:-/tmp/unravel-devnet}"
+
+# Standard ports when on 8545, shifted when running isolated beside another stack.
+if [ "$PORT" = "8545" ]; then
+  PROGRAM_PORT="${PROGRAM_SERVER_PORT:-13151}"
+  QUIC_PREFIX=920; CTRL_PREFIX=505; DASHBOARD_PORT=8080
+else
+  PROGRAM_PORT="${PROGRAM_SERVER_PORT:-13152}"
+  QUIC_PREFIX=930; CTRL_PREFIX=506; DASHBOARD_PORT=8081
+fi
 
 mkdir -p "$LOGS"
 step() { printf '\n\033[1m>>> %s\033[0m\n' "$*"; }
@@ -41,23 +56,24 @@ RPC_URL="$RPC" bash ./scripts/crisp_deploy.sh > "$LOGS/deploy.log" 2>&1 ||
 echo "deployed"
 
 step "pointing the stack at $PORT"
-# crisp_deploy rewrites contract addresses in interfold.config.yaml but leaves rpc_url and the node
-# ports alone, so the remap only has to be reapplied if it was never applied.
-sed -i '' \
-  -e "s|rpc_url: ws://localhost:8545|rpc_url: ws://localhost:${PORT}|" \
-  -e 's|quic_port: 920|quic_port: 930|' \
-  -e 's|ctrl_port: 505|ctrl_port: 506|' \
-  -e 's|dashboard_port: 8080|dashboard_port: 8081|' \
-  -e 's|/udp/920\([0-9]\)/quic-v1|/udp/930\1/quic-v1|' \
+# Rewrites are idempotent: they match whatever port is currently configured rather than the stock
+# value, so switching between 8545 and an isolated port works in either direction and repeatedly.
+# Matching only the original values would silently leave a previous remap in place.
+sed -E -i '' \
+  -e "s|rpc_url: ws://localhost:[0-9]+|rpc_url: ws://localhost:${PORT}|" \
+  -e "s|quic_port: [0-9]{2}0([0-9])|quic_port: ${QUIC_PREFIX}\1|" \
+  -e "s|ctrl_port: [0-9]{3}0([0-9])|ctrl_port: ${CTRL_PREFIX}0\1|" \
+  -e "s|dashboard_port: [0-9]+|dashboard_port: ${DASHBOARD_PORT}|" \
+  -e "s|/udp/[0-9]{2}0([0-9])/quic-v1|/udp/${QUIC_PREFIX}\1/quic-v1|" \
   interfold.config.yaml
 
-sed -i '' \
-  -e "s|HTTP_RPC_URL=http://127.0.0.1:8545|HTTP_RPC_URL=${RPC}|" \
-  -e "s|WS_RPC_URL=ws://127.0.0.1:8545|WS_RPC_URL=ws://127.0.0.1:${PORT}|" \
-  -e "s|PROGRAM_SERVER_URL=http://127.0.0.1:13151|PROGRAM_SERVER_URL=http://127.0.0.1:${PROGRAM_PORT}|" \
+sed -E -i '' \
+  -e "s|HTTP_RPC_URL=http://127.0.0.1:[0-9]+|HTTP_RPC_URL=${RPC}|" \
+  -e "s|WS_RPC_URL=ws://127.0.0.1:[0-9]+|WS_RPC_URL=ws://127.0.0.1:${PORT}|" \
+  -e "s|PROGRAM_SERVER_URL=http://127.0.0.1:[0-9]+|PROGRAM_SERVER_URL=http://127.0.0.1:${PROGRAM_PORT}|" \
   server/.env
 
-grep -E "rpc_url:" interfold.config.yaml | head -1
+grep -E "rpc_url:|quic_port:" interfold.config.yaml | head -2
 grep -E "HTTP_RPC_URL|PROGRAM_SERVER_URL" server/.env
 
 step "registering ciphernodes"
@@ -80,7 +96,7 @@ echo "registered"
 step "starting the ciphernode swarm"
 interfold nodes down >/dev/null 2>&1 || true
 interfold nodes up -v > "$LOGS/nodes.log" 2>&1 &
-until lsof -nP -i:9301 >/dev/null 2>&1; do sleep 2; done
+until lsof -nP -i:"${QUIC_PREFIX}1" >/dev/null 2>&1; do sleep 2; done
 echo "swarm up"
 
 step "starting the program server on $PROGRAM_PORT"

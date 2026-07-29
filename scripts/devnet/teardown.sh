@@ -10,8 +10,13 @@
 # Usage: teardown.sh
 set -euo pipefail
 
-PORT="${ANVIL_PORT:-8546}"
-PROGRAM_PORT="${PROGRAM_SERVER_PORT:-13152}"
+PORT="${ANVIL_PORT:-8545}"
+# Ciphernode and program ports shift with the chain port, matching bring-up.sh.
+if [ "$PORT" = "8545" ]; then
+  PROGRAM_PORT="${PROGRAM_SERVER_PORT:-13151}"; QUIC_PREFIX=920
+else
+  PROGRAM_PORT="${PROGRAM_SERVER_PORT:-13152}"; QUIC_PREFIX=930
+fi
 SERVER_PORT="${CRISP_SERVER_PORT:-4000}"
 CRISP_DIR="${CRISP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../interfold/.claude/worktrees/survival-game/examples/CRISP" && pwd)}"
 
@@ -38,7 +43,7 @@ done
 sleep 2
 
 step "remaining"
-for p in "$PORT" "$PROGRAM_PORT" "$SERVER_PORT" 9301 9302 9303 9304 9305; do
+for p in "$PORT" "$PROGRAM_PORT" "$SERVER_PORT" "${QUIC_PREFIX}1" "${QUIC_PREFIX}2" "${QUIC_PREFIX}3" "${QUIC_PREFIX}4" "${QUIC_PREFIX}5"; do
   lsof -nP -i:"$p" >/dev/null 2>&1 && echo "  $p STILL UP" || true
 done
 echo "  (nothing listed above means everything stopped)"

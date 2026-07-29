@@ -61,9 +61,10 @@ serves the frontend:
 ./scripts/play.sh
 ```
 
-Then add network `http://127.0.0.1:8546` (chain id 31337) to MetaMask and import anvil accounts
-**6–9** — accounts 0–5 are the CRISP server's signer and the five ciphernodes, and sharing them
-races nonces against processes that transact on their own.
+The chain runs on **8545**, which is what MetaMask's built-in "Localhost 8545" network already
+points at — so there is usually nothing to configure. Import anvil accounts **6–9**; accounts 0–5
+are the CRISP server's signer and the five ciphernodes, and sharing them races nonces against
+processes that transact on their own.
 
 | | |
 | --- | --- |
@@ -79,8 +80,9 @@ publish and nothing can be encrypted before it exists — that is the campaign p
 not a hang. Windows default to 900s each so there is time to drive several wallets by hand.
 
 Two devnets cannot safely share a machine: CRISP's own `dev.sh` tears down with `pkill -f anvil`,
-which matches by process name and kills every chain running. `play.sh` uses port 8546 and
-`teardown.sh` kills only by port, but that protects other stacks from this one — not the reverse.
+which matches by process name and kills every chain running. Run beside an existing devnet with
+`ANVIL_PORT=8546 ./scripts/play.sh` — every other port shifts with it — but note that only
+protects other stacks from this one, not the reverse.
 
 ### Two things worth knowing before reading the code
 

@@ -16,7 +16,7 @@
 set -euo pipefail
 
 ROSTER="${1:-4}"
-RPC="${RPC_URL:-http://127.0.0.1:8546}"
+RPC="${RPC_URL:-http://127.0.0.1:8545}"
 CRISP_SERVER="${CRISP_SERVER_URL:-http://127.0.0.1:4000}"
 
 # The campaign window has to outlast committee sortition and the DKG, because the ballot window

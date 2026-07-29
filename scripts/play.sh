@@ -16,7 +16,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CRISP_DIR="${CRISP_DIR:-$(cd "$ROOT/../interfold/.claude/worktrees/survival-game/examples/CRISP" && pwd)}"
 
-PORT="${ANVIL_PORT:-8546}"
+PORT="${ANVIL_PORT:-8545}"
 RPC="http://127.0.0.1:${PORT}"
 CRISP_SERVER="${CRISP_SERVER_URL:-http://127.0.0.1:4000}"
 APP_PORT="${APP_PORT:-3000}"
