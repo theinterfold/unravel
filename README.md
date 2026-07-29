@@ -52,6 +52,36 @@ forge build
 forge test
 ```
 
+## Playing it locally
+
+One command brings up a CRISP devnet, deploys the game, funds the pot, configures the app and
+serves the frontend:
+
+```bash
+WALLET_CONNECT_PROJECT_ID=<id> ./scripts/play.sh
+```
+
+Then add network `http://127.0.0.1:8546` (chain id 31337) to MetaMask and import anvil accounts
+**6–9** — accounts 0–5 are the CRISP server's signer and the five ciphernodes, and sharing them
+races nonces against processes that transact on their own.
+
+| | |
+| --- | --- |
+| `./scripts/play.sh` | full bootstrap, then serve |
+| `./scripts/play.sh --no-app` | bootstrap only |
+| `./scripts/play.sh --reuse` | keep the running devnet, deploy a fresh game |
+| `./scripts/devnet/teardown.sh` | stop this stack (and only this stack) |
+| `./scripts/devnet/run-round.sh 4` | headless round, no browser |
+| `node scripts/devnet/check-encoding.mjs` | verify the ballot encoding round-trips |
+
+**The ballot is unavailable for the first ~5 minutes of a round.** The committee key takes ~290s to
+publish and nothing can be encrypted before it exists — that is the campaign phase doing its job,
+not a hang. Windows default to 900s each so there is time to drive several wallets by hand.
+
+Two devnets cannot safely share a machine: CRISP's own `dev.sh` tears down with `pkill -f anvil`,
+which matches by process name and kills every chain running. `play.sh` uses port 8546 and
+`teardown.sh` kills only by port, but that protects other stacks from this one — not the reverse.
+
 ### Two things worth knowing before reading the code
 
 **Abstention is undetectable.** Ballots are secret and mask votes make slot activity meaningless, so
