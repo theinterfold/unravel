@@ -33,7 +33,6 @@ export const PUB_CHAIN_ID = PUB_CHAIN.id;
 
 // Network and services
 export const PUB_WEB3_ENDPOINT = process.env.NEXT_PUBLIC_WEB3_ENDPOINT ?? "";
-export const PUB_WALLET_CONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID ?? "";
 export const PUB_IPFS_ENDPOINTS = process.env.NEXT_PUBLIC_IPFS_ENDPOINTS ?? "";
 
 // Block the game was deployed at — the start of the campaign-event scan.

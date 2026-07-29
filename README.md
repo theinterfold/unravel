@@ -58,7 +58,7 @@ One command brings up a CRISP devnet, deploys the game, funds the pot, configure
 serves the frontend:
 
 ```bash
-WALLET_CONNECT_PROJECT_ID=<id> ./scripts/play.sh
+./scripts/play.sh
 ```
 
 Then add network `http://127.0.0.1:8546` (chain id 31337) to MetaMask and import anvil accounts
@@ -122,14 +122,27 @@ path — which is the point: the state machine stays simple and the treasury gov
 
 | | |
 | --- | --- |
-| Contracts + tests | done (59 tests) |
-| CRISP census hook | done, integration test pending |
-| Frontend | done, untested against a live round |
-| End-to-end round against a live committee | **outstanding** |
+| Contracts + tests | done (61 tests) |
+| Ballot encoding | verified — `check-encoding.mjs`, 13 checks |
+| CRISP census hook | **verified live** — the server reads `getCensus` and builds the eligibility tree from it |
+| Committee forms and publishes a key | verified live, ~290s |
+| Encrypted ballots accepted on-chain | verified live |
+| Decrypted tally → a real elimination | **not yet observed** |
 
-The end-to-end run is the one thing that has not happened, so treat the round timings as unproven:
-`campaignDuration` has a floor set by committee sortition and DKG, and that floor has not been
-measured on a real deployment yet.
+Everything up to and including `settleRound` executing on a real tally read has run against a live
+devnet. What has not been seen is a round where someone is actually voted out: on the first round
+that had votes to decrypt, the committee failed with `DecryptionInvalidShares` and the plaintext
+never published, so the tally read back as zeros and the round correctly voided.
+
+One lead worth checking before blaming the committee: the Rust and TypeScript tally decoders both
+segment by `MAX_MSG_NON_ZERO_COEFFS / numOptions` (100/n), while `CRISPProgram.decodeTally` segments
+by `tally.length / numOptions`. Those agree only if `plaintextOutput` decodes to exactly 100
+`uint64`s — and `fhe_processor` returns the whole ciphertext sum, so the decrypted polynomial is
+plausibly full degree. If so, the on-chain decoder reads the wrong coefficients and would return
+zeros regardless of the committee. Unverified, because no run ever produced a plaintext to measure.
+
+Timings are measured rather than guessed: the DKG floor above is from an actual round, on a machine
+that was also running another proving workload. It moves with hardware, committee size and preset.
 
 ## Trust note
 

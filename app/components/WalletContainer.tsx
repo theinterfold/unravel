@@ -1,13 +1,13 @@
 import { PUB_CHAIN, PUB_WEB3_ENDPOINT } from "@/constants";
 import { formatHexString } from "@/utils/evm";
 import { MemberAvatar } from "@aragon/ods";
-import { useWeb3Modal } from "@web3modal/wagmi/react";
 import classNames from "classnames";
 import { useEffect } from "react";
 import { createClient, http } from "viem";
 import { normalize } from "viem/ens";
 import { createConfig, useAccount, useEnsAvatar, useEnsName, useSwitchChain } from "wagmi";
 import { mainnet } from "wagmi/chains";
+import { useWallet } from "@/hooks/useWallet";
 
 const config = createConfig({
   chains: [mainnet],
@@ -22,7 +22,7 @@ const config = createConfig({
 
 // TODO: update with ODS wallet module - [https://linear.app/aragon/issue/RD-198/create-ods-walletmodule]
 const WalletContainer = () => {
-  const { open } = useWeb3Modal();
+  const { toggle, isPending } = useWallet();
   const { address, isConnected, chainId } = useAccount();
   const { switchChain } = useSwitchChain();
 
@@ -55,7 +55,8 @@ const WalletContainer = () => {
         { "px-1 md:px-0 md:pl-4 md:pr-1": isConnected },
         { "px-4": !isConnected }
       )}
-      onClick={() => open()}
+      onClick={() => toggle()}
+      title={isConnected ? "Disconnect" : "Connect a browser wallet"}
     >
       {isConnected && address && (
         <div className="flex items-center gap-3">
@@ -64,7 +65,7 @@ const WalletContainer = () => {
         </div>
       )}
 
-      {!isConnected && <span>Connect</span>}
+      {!isConnected && <span>{isPending ? "Connecting…" : "Connect"}</span>}
     </button>
   );
 };

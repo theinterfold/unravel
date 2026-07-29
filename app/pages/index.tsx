@@ -1,13 +1,11 @@
 import { Button } from "@aragon/ods";
-import { useAccount } from "wagmi";
-import { useWeb3Modal } from "@web3modal/wagmi/react";
+import { useWallet } from "@/hooks/useWallet";
 import Link from "next/link";
 import { plugins } from "@/plugins";
 import { PUB_CRISP_INFO_URL } from "@/constants";
 
 export default function Home() {
-  const { isConnected } = useAccount();
-  const { open } = useWeb3Modal();
+  const { isConnected, connect, isPending } = useWallet();
 
   const gameHref = `/plugins/${plugins[0]?.id ?? "game"}/#/`;
 
@@ -54,8 +52,8 @@ export default function Home() {
 
         <div className="mt-14 flex flex-wrap items-center gap-3">
           {!isConnected && (
-            <Button size="lg" variant="primary" onClick={() => open()}>
-              Connect wallet
+            <Button size="lg" variant="primary" onClick={() => connect()}>
+              {isPending ? "Connecting…" : "Connect wallet"}
             </Button>
           )}
           <Link href={gameHref}>

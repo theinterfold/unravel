@@ -10,8 +10,7 @@
 #   ./scripts/play.sh --no-app     # bootstrap only (leaves the stack up)
 #   ./scripts/play.sh --reuse      # keep the running devnet, just deploy a fresh game
 #
-# Env overrides: ROSTER, CAMPAIGN_DURATION, BALLOT_DURATION, TALLY_GRACE, ANVIL_PORT,
-#                WALLET_CONNECT_PROJECT_ID, APP_PORT
+# Env overrides: ROSTER, CAMPAIGN_DURATION, BALLOT_DURATION, TALLY_GRACE, ANVIL_PORT, APP_PORT
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -52,18 +51,7 @@ COMPUTE_PROVIDER_PARAMS=0x7b226e616d65223a225249534330222c22706172616c6c656c223a
 # ─── 0. preflight ───────────────────────────────────────────────────────────────────────────────
 #
 # Checked before anything is started, because bringing the devnet up takes several minutes and
-# discovering a missing WalletConnect id at the end of that is pure waste.
-
-WC_ID="${WALLET_CONNECT_PROJECT_ID:-}"
-if [ -z "$WC_ID" ] && [ -f "$ROOT/app/.env" ]; then
-  WC_ID="$(grep -E '^NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID=' "$ROOT/app/.env" | head -1 | cut -d= -f2- | tr -d '"')"
-fi
-if [ -z "$WC_ID" ] || [ "$WC_ID" = "YOUR WALLET CONNECT PROJECT ID" ]; then
-  fail "WALLET_CONNECT_PROJECT_ID is not set and app/.env has no usable value.
-       Web3Modal throws 'projectId is undefined' at startup without one, so the app will not load.
-       Get a free id at https://cloud.reown.com, then:
-         WALLET_CONNECT_PROJECT_ID=<id> ./scripts/play.sh"
-fi
+# discovering a missing tool at the end of that is pure waste.
 
 for bin in cast forge; do
   command -v "$bin" >/dev/null 2>&1 || fail "$bin not found — install Foundry"
@@ -153,8 +141,6 @@ NEXT_PUBLIC_CRISP_SERVER_URL=$CRISP_SERVER
 NEXT_PUBLIC_CHAIN_NAME=localhost
 NEXT_PUBLIC_WEB3_ENDPOINT=$RPC
 NEXT_PUBLIC_SECONDS_PER_BLOCK=1
-
-NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID=$WC_ID
 EOF
 echo "  app/.env written (previous copy at app/.env.bak)"
 

@@ -1,5 +1,5 @@
 import { PUBLIC_SECONDS_PER_BLOCK, PUB_CHAIN } from "@/constants";
-import { config } from "@/context/Web3Modal";
+import { config } from "@/context/wagmi";
 import { getBlock } from "@wagmi/core";
 import { mainnet } from "viem/chains";
 import { type usePublicClient } from "wagmi";
