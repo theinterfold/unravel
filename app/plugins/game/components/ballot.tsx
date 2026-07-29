@@ -3,6 +3,7 @@ import type { Address } from "viem";
 import { Button } from "@aragon/ods";
 import { AddressText } from "@/components/text/address";
 import { useCastBallot } from "../hooks/useCastBallot";
+import { useE3State } from "../hooks/useE3State";
 
 interface BallotProps {
   e3Id: bigint;
@@ -21,8 +22,15 @@ interface BallotProps {
 export const Ballot: FC<BallotProps> = ({ e3Id, candidates, canVote, self }) => {
   const [selected, setSelected] = useState<number | null>(null);
   const { castBallot, castMask, isLoading, votingStep, stepMessage, error } = useCastBallot();
+  const { e3 } = useE3State(e3Id);
 
   const votable = candidates.filter((c) => !isSelf(c, self));
+
+  // A vote is encrypted under the committee's key, so there is nothing to cast until it exists.
+  // The window opening on a timer says nothing about whether the committee is ready, and letting
+  // someone press the button early produces an opaque failure minutes into proof generation.
+  const keyReady = e3?.keyPublished ?? false;
+  const ready = canVote && keyReady;
 
   return (
     <div className="box-border flex w-full flex-col gap-4 rounded-xl border border-neutral-100 bg-neutral-0 p-4 xl:p-6">
@@ -34,9 +42,19 @@ export const Ballot: FC<BallotProps> = ({ e3Id, candidates, canVote, self }) => 
         </p>
       </div>
 
+      {!keyReady && (
+        <div className="flex items-start gap-2 rounded-lg bg-warning-100 p-3 text-sm text-neutral-700">
+          <span className="mt-1.5 h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning-500" />
+          <span>
+            The committee has not published its key yet, so there is nothing to encrypt against. Voting unlocks
+            automatically once it does — usually a few minutes after the round opens.
+          </span>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2">
         {candidates.map((candidate, index) => {
-          const disabled = !canVote || isLoading;
+          const disabled = !ready || isLoading;
           const isMe = isSelf(candidate, self);
 
           return (
@@ -64,16 +82,24 @@ export const Ballot: FC<BallotProps> = ({ e3Id, candidates, canVote, self }) => 
       <div className="flex flex-wrap gap-2">
         <Button
           size="md"
-          disabled={selected === null || !canVote || isLoading}
+          disabled={selected === null || !ready || isLoading}
           onClick={() => selected !== null && castBallot(selected, e3Id)}
         >
-          {isLoading ? "Working..." : "Cast ballot"}
+          {isLoading ? "Working..." : keyReady ? "Cast ballot" : "Waiting for the committee"}
         </Button>
 
-        <Button size="md" variant="tertiary" disabled={isLoading} onClick={() => castMask(e3Id)}>
+        <Button size="md" variant="tertiary" disabled={!keyReady || isLoading} onClick={() => castMask(e3Id)}>
           Send a mask
         </Button>
       </div>
+
+      {isLoading && (
+        // Proving takes 45-90s in the browser. Without saying so, a stalled-looking button invites
+        // a second click, and the wallet prompt that follows looks like a bug.
+        <p className="text-xs text-neutral-400">
+          Generating the zero-knowledge proof in your browser. This takes up to a minute or two — leave the page open.
+        </p>
+      )}
 
       <p className="text-xs text-neutral-400">
         A mask is a zero-vote dropped into someone else&apos;s slot. It changes no result, but it makes it impossible to
