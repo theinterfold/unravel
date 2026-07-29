@@ -19,6 +19,18 @@ ROSTER="${1:-4}"
 RPC="${RPC_URL:-http://127.0.0.1:8546}"
 CRISP_SERVER="${CRISP_SERVER_URL:-http://127.0.0.1:4000}"
 
+# The campaign window has to outlast committee sortition and the DKG, because the ballot window
+# opens the moment it ends — a voter cannot encrypt anything before the committee key exists.
+#
+# Measured on this devnet (5 ciphernodes, insecure-512, mock verifiers, sharing a machine with
+# another proving workload): E3Requested -> CommitteePublished took ~287s. A 180s campaign window
+# put the key 107s *after* the ballot opened, and every ballot failed. 480s leaves real headroom;
+# treat ~290s as the floor to measure against rather than a constant to trust, since it moves with
+# hardware, committee size and preset.
+CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-480}"
+BALLOT_DURATION="${BALLOT_DURATION:-240}"
+TALLY_GRACE="${TALLY_GRACE:-120}"
+
 # Deterministic anvil accounts (mnemonic "test test test ...").
 #
 # Account roles on a CRISP devnet are NOT free to choose:
@@ -108,9 +120,9 @@ DEPLOY_OUT="$(
   cd "$CONTRACTS_DIR" &&
   INTERFOLD_ADDRESS="$INTERFOLD_ADDRESS" \
   CRISP_PROGRAM_ADDRESS="$CRISP_PROGRAM" \
-  CAMPAIGN_DURATION=180 \
-  BALLOT_DURATION=180 \
-  TALLY_GRACE=60 \
+  CAMPAIGN_DURATION="$CAMPAIGN_DURATION" \
+  BALLOT_DURATION="$BALLOT_DURATION" \
+  TALLY_GRACE="$TALLY_GRACE" \
   ROSTER_SIZE="$ROSTER" \
   FINALISTS=2 \
   MAX_MISSED_CHECKINS=0 \
@@ -187,9 +199,16 @@ cast call "$GAME" "getCensus(uint256)(address[])" "$E3_ID" --rpc-url "$RPC"
 
 step "waiting for the committee key (measuring the campaign-window floor)"
 KEY_READY=""
+# Round state is a POST to /state/lite with a JSON body — not a GET on a path. Guessing the latter
+# returns an empty body forever, which is indistinguishable from "the committee never formed" and
+# will happily report a healthy devnet as a failure.
 for _ in $(seq 1 120); do
-  STATE="$(curl -sf "$CRISP_SERVER/rounds/$E3_ID/state-lite" 2>/dev/null || echo '')"
-  if [ -n "$STATE" ] && ! echo "$STATE" | grep -q '"committee_public_key":\[\]'; then
+  STATE="$(curl -s -X POST "$CRISP_SERVER/state/lite" \
+    -H 'Content-Type: application/json' -d "{\"round_id\":$E3_ID}" 2>/dev/null || echo '')"
+  # Check positively for a populated key. Testing "not the empty-array pattern" also passes on the
+  # server's plain-text error bodies ("Failed to get E3 state"), which reports a key as ready one
+  # second in and makes the whole measurement meaningless.
+  if echo "$STATE" | grep -qE '"committee_public_key":\[[0-9]'; then
     KEY_READY="$(( $(date +%s) - START_TS ))"
     break
   fi
@@ -197,14 +216,14 @@ for _ in $(seq 1 120); do
 done
 
 [ -n "$KEY_READY" ] || fail "committee key never published — the campaign window is too short, or the committee did not form"
-step "committee key published after ${KEY_READY}s (campaign window is 180s)"
+step "committee key published after ${KEY_READY}s (campaign window is ${CAMPAIGN_DURATION}s)"
 
 echo "$STATE" | head -c 400; echo
 
 # ─── Cast ballots ───────────────────────────────────────────────────────────────────────────────
 
 step "waiting for the ballot window to open"
-until [ "$(date +%s)" -ge "$((START_TS + 180))" ]; do sleep 2; done
+until [ "$(date +%s)" -ge "$((START_TS + CAMPAIGN_DURATION))" ]; do sleep 5; done
 
 step "casting $ROSTER ballots (everyone votes for candidate 0)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -216,7 +235,7 @@ done
 # ─── Settle ─────────────────────────────────────────────────────────────────────────────────────
 
 step "waiting for the ballot window to close and the tally to land"
-until [ "$(date +%s)" -ge "$((START_TS + 180 + 180 + 60))" ]; do sleep 5; done
+until [ "$(date +%s)" -ge "$((START_TS + CAMPAIGN_DURATION + BALLOT_DURATION + TALLY_GRACE))" ]; do sleep 10; done
 
 step "tally"
 cast call "$CRISP_PROGRAM" "decodeTally(uint256)(uint256[])" "$E3_ID" --rpc-url "$RPC" || echo "  tally not published"
