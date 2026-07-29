@@ -69,8 +69,18 @@ export const RoundStatus: FC<RoundStatusProps> = ({ round, tallyGrace }) => {
           <div className="h-1.5 rounded bg-primary-500 transition-all" style={{ width: `${progress}%` }} />
         </div>
         <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-          <Marker label="Campaign" at={round.openedAt} active={phase === "campaign"} done={now >= round.ballotOpensAt} />
-          <Marker label="Ballot" at={round.ballotOpensAt} active={phase === "ballot"} done={now >= round.ballotClosesAt} />
+          <Marker
+            label="Campaign"
+            at={round.openedAt}
+            active={phase === "campaign"}
+            done={now >= round.ballotOpensAt}
+          />
+          <Marker
+            label="Ballot"
+            at={round.ballotOpensAt}
+            active={phase === "ballot"}
+            done={now >= round.ballotClosesAt}
+          />
           <Marker label="Tally" at={round.ballotClosesAt} active={phase === "tally"} done={round.settled} />
         </div>
       </div>
@@ -78,7 +88,9 @@ export const RoundStatus: FC<RoundStatusProps> = ({ round, tallyGrace }) => {
       {/* Committee readiness — the thing that actually gates voting. */}
       {!round.settled && (
         <div className="flex flex-col gap-2 rounded-lg bg-neutral-50 p-3 text-sm">
-          {unavailable && !e3 && <Line tone="muted" text="Waiting for the coordination server to pick up this round…" />}
+          {unavailable && !e3 && (
+            <Line tone="muted" text="Waiting for the coordination server to pick up this round…" />
+          )}
 
           {e3 && !e3.keyPublished && (
             <Line
@@ -91,7 +103,9 @@ export const RoundStatus: FC<RoundStatusProps> = ({ round, tallyGrace }) => {
             <Line tone="ok" text="Committee key published. Ballots open when the campaign ends." />
           )}
 
-          {e3?.keyPublished && phase === "ballot" && <Line tone="ok" text="Committee key published. Ballots are open." />}
+          {e3?.keyPublished && phase === "ballot" && (
+            <Line tone="ok" text="Committee key published. Ballots are open." />
+          )}
 
           {e3 && (
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-neutral-500">
