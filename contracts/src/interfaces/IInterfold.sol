@@ -205,6 +205,14 @@ interface IInterfold {
     /// @param paramSet The BFV encryption parameter set to use.
     /// @param computeProviderParams The ABI encoded compute provider parameters.
     /// @param customParams Arbitrary ABI-encoded application-defined parameters.
+    /// @dev MUST match the Interfold deployment being targeted — the whole struct is one ABI
+    ///      selector, so a single extra field silently changes `request` from 0x2215c91d to
+    ///      0xf3ceba3a and every call reverts with empty data rather than a named error.
+    ///
+    ///      This shape (six fields) matches the Interfold built from the monorepo. The copy
+    ///      vendored in `the-interfold-governance` carries a trailing `proofAggregationEnabled`
+    ///      bool and does NOT work against it; if you retarget this game at the deployment that
+    ///      app uses, re-vendor the interface from there and re-check the selector.
     struct E3RequestParams {
         CommitteeSize committeeSize;
         uint256[2] inputWindow;
@@ -212,12 +220,6 @@ interface IInterfold {
         uint8 paramSet;
         bytes computeProviderParams;
         bytes customParams;
-        /// @notice When true, ciphernodes generate and fold wrapper proofs
-        ///         for DKG proof aggregation (public verifiability). When
-        ///         false, wrapper/fold proofs are skipped to reduce latency.
-        ///         C5 and C7 proofs are always generated and verified on-chain
-        ///         regardless of this flag.
-        bool proofAggregationEnabled;
     }
 
     ////////////////////////////////////////////////////////////

@@ -349,8 +349,7 @@ contract SurvivalGame is Ownable {
             e3Program: IE3Program(crispProgram),
             paramSet: paramSet,
             computeProviderParams: computeProviderParams,
-            customParams: customParams,
-            proofAggregationEnabled: false
+            customParams: customParams
         });
     }
 
@@ -363,6 +362,13 @@ contract SurvivalGame is Ownable {
     ///
     ///      Returns *voters*, not candidates — the two differ in the jury round, where the
     ///      graveyard votes on the finalists. Candidates come from `candidatesOf`.
+    ///
+    ///      MUST be immutable for a given `e3Id` once the round is open. The server reads this at
+    ///      chain head, not pinned to the request block — the E3's `requestBlock` is an EIP-6372
+    ///      timestamp rather than a height, so there is nothing to pin to. A census that changed
+    ///      mid-round would validate ballots against a different eligibility tree than the one
+    ///      they were proven against. Here the voter list is copied into the round at `_openRound`
+    ///      and never written again, which is what makes that safe.
     function getCensus(uint256 e3Id) external view returns (address[] memory) {
         uint256 slot = roundByE3Id[e3Id];
         if (slot == 0) return new address[](0);

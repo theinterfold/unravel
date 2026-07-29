@@ -1,0 +1,11 @@
+{
+  "name": "unravel-devnet",
+  "private": true,
+  "type": "module",
+  "description": "Headless harness for driving a real elimination round against a local CRISP devnet.",
+  "comment": "@crisp-e3/sdk is linked from the local checkout, not the registry: the proof it generates has to match the circuits the running devnet was built from, and a published version can drift from them.",
+  "dependencies": {
+    "@crisp-e3/sdk": "file:../../../interfold/.claude/worktrees/survival-game/examples/CRISP/packages/crisp-sdk",
+    "viem": "^2.30.6"
+  }
+}
