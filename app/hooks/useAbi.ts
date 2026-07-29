@@ -1,0 +1,127 @@
+import { Address } from "viem";
+import { whatsabi } from "@shazow/whatsabi";
+import { usePublicClient } from "wagmi";
+import { AbiFunction } from "abitype";
+import { useQuery } from "@tanstack/react-query";
+import { ADDRESS_ZERO, isAddress, isContract } from "@/utils/evm";
+import { PUB_CHAIN } from "@/constants";
+import { useAlerts } from "@/context/Alerts";
+import { getImplementation } from "@/utils/proxies";
+
+export const useAbi = (contractAddress: Address) => {
+  const { addAlert } = useAlerts();
+  const publicClient = usePublicClient({ chainId: PUB_CHAIN.id });
+
+  const { data: implementationAddress, isLoading: isLoadingImpl } = useQuery<Address | null>({
+    queryKey: ["proxy-check", contractAddress, publicClient?.chain.id],
+    queryFn: () => {
+      if (!contractAddress || !publicClient) return null;
+      else if (!isAddress(contractAddress) || !publicClient) {
+        return null;
+      }
+
+      return getImplementation(publicClient, contractAddress)
+        .then((address) => {
+          if (!address || address === ADDRESS_ZERO) return null;
+          return address;
+        })
+        .catch(() => null);
+    },
+    retry: 6,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    retryOnMount: true,
+    staleTime: 1000 * 60 * 60 * 24 * 7,
+  });
+
+  const resolvedAddress = isAddress(implementationAddress) ? (implementationAddress as Address) : contractAddress;
+
+  const {
+    data: abi,
+    isLoading,
+    error,
+  } = useQuery<AbiFunction[], Error>({
+    queryKey: ["abi", resolvedAddress || "", publicClient?.chain.id],
+    queryFn: async () => {
+      if (!resolvedAddress || !isAddress(resolvedAddress) || !publicClient) {
+        return [];
+      } else if (!(await isContract(resolvedAddress, publicClient))) {
+        return [];
+      }
+
+      return whatsabi
+        .autoload(resolvedAddress, {
+          provider: publicClient,
+          abiLoader: getEtherscanAbiLoader(),
+          // Fallback selector lookup for unverified contracts. The default includes
+          // 4byte.directory, which has no CORS headers and rate-limits browsers to a
+          // storm of console errors; OpenChain is CORS-friendly.
+          signatureLookup: new whatsabi.loaders.OpenChainSignatureLookup(),
+          followProxies: false,
+          enableExperimentalMetadata: true,
+        })
+        .then(({ abi }) => {
+          const functionItems: AbiFunction[] = [];
+          for (const item of abi) {
+            // "event", "error", "constructor", "receive", "fallback"
+            if (item.type !== "function") continue;
+
+            functionItems.push({
+              name: ((item as any).name as string) || "(unknown function)",
+              inputs: item?.inputs ?? [],
+              outputs: item?.outputs ?? [],
+              stateMutability: item?.stateMutability || "payable",
+              type: item?.type,
+            });
+          }
+          functionItems.sort(abiSortCallback);
+          return functionItems;
+        })
+        .catch((err) => {
+          console.error(err);
+          addAlert("Cannot fetch", {
+            description: "The details of the contract cannot be fetched or are not publicly available",
+            type: "error",
+          });
+          throw err;
+        });
+    },
+    retry: 6,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    retryOnMount: true,
+    staleTime: 1000 * 60 * 60 * 24 * 30,
+  });
+
+  return {
+    abi: abi ?? [],
+    isLoading: isLoading || isLoadingImpl,
+    error,
+    isProxy: !!implementationAddress,
+    implementation: implementationAddress,
+  };
+};
+
+function getEtherscanAbiLoader() {
+  // Requests go through our own `/api/etherscan` route, which appends the API key
+  // server-side — the key must never be a NEXT_PUBLIC_* var (inlined into the bundle).
+  //
+  // Etherscan's per-network V1 endpoints (api-sepolia.etherscan.io, ...) are sunset;
+  // everything goes through the multichain V2 endpoint with a `chainid` param. whatsabi
+  // 0.14 has no chainid config, so it rides in via the apiKey field (the proxy strips
+  // any caller-supplied `apikey`, and query-param order is irrelevant).
+  return new whatsabi.loaders.EtherscanABILoader({
+    apiKey: `ignored&chainid=${PUB_CHAIN.id}`,
+    baseURL: "/api/etherscan",
+  });
+}
+
+function abiSortCallback(a: AbiFunction, b: AbiFunction) {
+  const a_RO = ["pure", "view"].includes(a.stateMutability);
+  const b_RO = ["pure", "view"].includes(b.stateMutability);
+
+  if (a_RO === b_RO) return 0;
+  else if (a_RO) return 1;
+  else if (b_RO) return -1;
+  return 0;
+}
