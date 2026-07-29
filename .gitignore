@@ -1,6 +1,8 @@
-node_modules/
-contracts/out/
-contracts/cache/
-contracts/broadcast/
-.env
+
 .DS_Store
+.env
+bun.lockb
+contracts/broadcast/
+contracts/cache/
+contracts/out/
+node_modules/

@@ -1,0 +1,34 @@
+{
+  "name": "unravel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A social survival game whose eliminations are decided by secret ballot, built on Interfold's CRISP protocol.",
+  "scripts": {
+    "play": "./scripts/play.sh",
+    "play:reuse": "./scripts/play.sh --reuse",
+    "play:headless": "./scripts/play.sh --no-app",
+
+    "devnet:up": "./scripts/devnet/bring-up.sh",
+    "devnet:down": "./scripts/devnet/teardown.sh",
+    "devnet:round": "./scripts/devnet/run-round.sh",
+    "devnet:logs": "tail -n 40 -f /tmp/unravel-devnet/server.log /tmp/unravel-devnet/nodes.log",
+    "devnet:status": "./scripts/devnet/status.sh",
+
+    "contracts:build": "forge build --root contracts",
+    "contracts:test": "forge test --root contracts",
+    "contracts:fmt": "forge fmt --root contracts",
+    "contracts:fmt:check": "forge fmt --check --root contracts",
+    "contracts:abi": "./scripts/devnet/sync-abis.sh",
+
+    "app:dev": "cd app && bun dev",
+    "app:build": "cd app && bun run build",
+    "app:lint": "cd app && bun run lint",
+    "app:typecheck": "cd app && npx tsc --noEmit",
+
+    "check:encoding": "cd scripts/devnet && node check-encoding.mjs",
+
+    "setup": "cd app && bun install && cd ../scripts/devnet && bun install",
+    "test": "bun run contracts:test && bun run check:encoding",
+    "lint": "bun run contracts:fmt:check && bun run app:typecheck"
+  }
+}

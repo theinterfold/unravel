@@ -46,19 +46,14 @@ Both were found by reading the CRISP implementation, and both are enforced in th
 | `SurvivalGame` | The state machine: lobby, rounds, ballots, tally settlement, jury endgame, prize pot. |
 | `IImmunitySource` | Optional hook for a *public* immunity vote (see below). |
 
-```bash
-cd contracts
-forge build
-forge test
-```
-
 ## Playing it locally
 
 One command brings up a CRISP devnet, deploys the game, funds the pot, configures the app and
 serves the frontend:
 
 ```bash
-./scripts/play.sh
+bun run setup   # first time only — installs app + harness deps
+bun run play
 ```
 
 The chain runs on **8545**, which is what MetaMask's built-in "Localhost 8545" network already
@@ -66,14 +61,26 @@ points at — so there is usually nothing to configure. Import anvil accounts **
 are the CRISP server's signer and the five ciphernodes, and sharing them races nonces against
 processes that transact on their own.
 
+### Commands
+
 | | |
 | --- | --- |
-| `./scripts/play.sh` | full bootstrap, then serve |
-| `./scripts/play.sh --no-app` | bootstrap only |
-| `./scripts/play.sh --reuse` | keep the running devnet, deploy a fresh game |
-| `./scripts/devnet/teardown.sh` | stop this stack (and only this stack) |
-| `./scripts/devnet/run-round.sh 4` | headless round, no browser |
-| `node scripts/devnet/check-encoding.mjs` | verify the ballot encoding round-trips |
+| `bun run play` | full bootstrap, then serve the app |
+| `bun run play:reuse` | keep the running devnet, deploy a fresh game |
+| `bun run play:headless` | bootstrap only, no frontend |
+| `bun run devnet:up` / `devnet:down` | start / stop the stack (down kills only this stack) |
+| `bun run devnet:status` | what is running, and what phase the round is in |
+| `bun run devnet:round 4` | drive a whole round headlessly, no browser |
+| `bun run devnet:logs` | tail the coordination server and ciphernodes |
+| `bun run contracts:build` / `contracts:test` / `contracts:fmt` | Foundry |
+| `bun run contracts:abi` | regenerate the app's ABIs after a contract change |
+| `bun run app:dev` / `app:build` / `app:typecheck` | frontend |
+| `bun run check:encoding` | verify the ballot encoding round-trips |
+| `bun run test` | contracts + encoding |
+| `bun run lint` | `forge fmt --check` + app typecheck |
+
+`devnet:status` is usually the fastest way to answer "why isn't this working" — most confusing
+failures are a service being down or a wallet on the wrong port, not a contract rejecting anything.
 
 **The ballot is unavailable for the first ~5 minutes of a round.** The committee key takes ~290s to
 publish and nothing can be encrypted before it exists — that is the campaign phase doing its job,
