@@ -6,6 +6,7 @@ import {console2} from "forge-std/console2.sol";
 
 import {SurvivalGame} from "../src/SurvivalGame.sol";
 import {RosterToken} from "../src/RosterToken.sol";
+import {PublicImmunityVote} from "../src/PublicImmunityVote.sol";
 import {IInterfold} from "../src/interfaces/IInterfold.sol";
 
 /// @notice Deploys the LIFE/JURY badges and the game, then hands both tokens to the game.
@@ -43,11 +44,20 @@ contract DeployGame is Script {
         life.transferOwnership(address(game));
         jury.transferOwnership(address(game));
 
+        // Optional. Off by default so the core loop can be proven before the public half is added.
+        address immunity;
+        if (vm.envOr("ENABLE_IMMUNITY", false)) {
+            PublicImmunityVote vote = new PublicImmunityVote(game, life);
+            game.setImmunitySource(vote);
+            immunity = address(vote);
+        }
+
         vm.stopBroadcast();
 
         console2.log("LIFE", address(life));
         console2.log("JURY", address(jury));
         console2.log("GAME", address(game));
+        console2.log("IMMUNITY", immunity);
     }
 
     /// @dev Split out to keep `run` under the stack limit.

@@ -65,18 +65,41 @@ are fixed by the time settlement runs, so the draw is deterministic and verifiab
 
 ## Immunity is public on purpose
 
-Immunity is optional and disabled by default. When enabled, it is a **public, attributable** vote
-while the elimination stays private — so each round you must protect someone on the record while
-knifing someone in secret. The gap between your two ballots is the game.
+Immunity is optional and disabled by default (`SurvivalGame.setImmunitySource`). When enabled,
+`PublicImmunityVote` runs a **public, attributable** election for who cannot be eliminated, while
+the elimination itself stays private. Each round you protect someone on the record and knife
+someone in secret. The gap between your two ballots is the game.
 
-Making immunity private instead would cost a second E3 per round (it cannot share the elimination
-ballot: a 10-roster would need 20 options to distinguish "protect X" from "eliminate Y", which
-`MAX_OPTIONS` forbids) and would put *less* information into the game, not more.
+A tie protects nobody — handing out immunity that no majority voted for is worse than an
+indecisive round.
+
+Two things this is deliberately *not*:
+
+- **Not private.** A second secret ballot would cost another E3 per round and put *less*
+  information into the game. It also cannot share the elimination ballot: a 10-roster would need 20
+  options to distinguish "protect X" from "eliminate Y", which `MAX_OPTIONS` forbids.
+- **Not an Aragon TokenVoting plugin.** TokenVoting decides Yes/No/Abstain on a proposal; immunity
+  is an N-way election, which would need one proposal per candidate per round. `PublicImmunityVote`
+  votes directly against the same `ERC20Votes` roster token a plugin would have used.
+
+## Running it under a DAO
+
+`SurvivalGame` is `Ownable`, so a DAO can hold ownership and therefore the abort/sweep/immunity
+controls, and fund the pot through `fund()`. Nothing in the round loop needs the DAO to be in the
+path — which is the point: the state machine stays simple and the treasury governance is separable.
 
 ## Status
 
-Core contracts and tests are done. The end-to-end run against a live committee, and the frontend,
-are still outstanding — see the project plan.
+| | |
+| --- | --- |
+| Contracts + tests | done (59 tests) |
+| CRISP census hook | done, integration test pending |
+| Frontend | done, untested against a live round |
+| End-to-end round against a live committee | **outstanding** |
+
+The end-to-end run is the one thing that has not happened, so treat the round timings as unproven:
+`campaignDuration` has a floor set by committee sortition and DKG, and that floor has not been
+measured on a real deployment yet.
 
 ## Trust note
 
