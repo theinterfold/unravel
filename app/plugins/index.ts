@@ -1,4 +1,4 @@
-import { PUB_CRISP_VOTING_PLUGIN_ADDRESS, PUB_TOKEN_ADDRESS } from "@/constants";
+import { PUB_GAME_ADDRESS } from "@/constants";
 import { IconType } from "@aragon/ods";
 
 type PluginItem = {
@@ -14,18 +14,10 @@ type PluginItem = {
 
 export const plugins: PluginItem[] = [
   {
-    id: "proposals",
-    folderName: "governance",
-    title: "Proposals",
-    icon: IconType.BLOCKCHAIN_BLOCKCHAIN,
-    // Informational only — the governance shell talks to both plugin addresses.
-    pluginAddress: PUB_CRISP_VOTING_PLUGIN_ADDRESS,
-  },
-  {
-    id: "members",
-    folderName: "members",
-    title: "Delegation",
+    id: "game",
+    folderName: "game",
+    title: "The Game",
     icon: IconType.APP_MEMBERS,
-    pluginAddress: PUB_TOKEN_ADDRESS,
+    pluginAddress: PUB_GAME_ADDRESS,
   },
 ];

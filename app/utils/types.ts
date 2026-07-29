@@ -1,6 +1,10 @@
 import { IApprovalThresholdResult, IButtonProps, ProposalType } from "@aragon/ods";
 import { Address, Hex, AbiFunction } from "viem";
-import { IVotesDataListVariant } from "@/components/proposalVoting/votesDataList/votesDataListItemStructure";
+
+/// Was re-exported from the governance app's votes data list, which UNRAVEL does not have. The
+/// game never renders per-voter rows — that is the whole point of a secret ballot — so this is
+/// kept only to satisfy the surrounding proposal types inherited from the fork.
+type IVotesDataListVariant = "for" | "against" | "abstain";
 
 // General types
 type JsonLiteral = string | number | boolean;
