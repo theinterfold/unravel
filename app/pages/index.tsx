@@ -4,6 +4,7 @@ import { plugins } from "@/plugins";
 import { PUB_CRISP_INFO_URL } from "@/constants";
 import { useGame } from "@/plugins/game/hooks/useGame";
 import { Stage } from "@/plugins/game/utils/gameTypes";
+import { useFeeToken } from "@/plugins/game/hooks/useFeeToken";
 
 /// The front door.
 ///
@@ -13,6 +14,7 @@ import { Stage } from "@/plugins/game/utils/gameTypes";
 export default function Home() {
   const { isConnected, connect, isPending } = useWallet();
   const { game } = useGame(30_000);
+  const feeToken = useFeeToken();
 
   const gameHref = `/plugins/${plugins[0]?.id ?? "game"}/#/`;
 
@@ -121,7 +123,11 @@ export default function Home() {
             figure={game?.config.teamCount.toString() ?? "—"}
             note="tribes, most of which will betray the rest by Tuesday"
           />
-          <Stat figure={game?.pot.toString() ?? "—"} note="in the pot, going to exactly one of them" />
+          {/* Omitted rather than shown raw: an unformatted pot is base units, which reads as noise. */}
+          <Stat
+            figure={feeToken.format(game?.pot) ?? "—"}
+            note={`${feeToken.symbol ? feeToken.symbol + " in the pot" : "in the pot"}, going to exactly one of them`}
+          />
           <Stat figure="0" note="people who can see how you voted. Including us. Forever." />
         </section>
       </div>

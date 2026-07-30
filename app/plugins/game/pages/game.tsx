@@ -7,6 +7,7 @@ import { useGame, useRound, useCurrentRoundId, useTeams } from "../hooks/useGame
 import { useCheckIn } from "../hooks/useCheckIn";
 import { useTally, usePrize } from "../hooks/useTally";
 import { useSealedLocally } from "../hooks/useSealedLocally";
+import { useFeeToken } from "../hooks/useFeeToken";
 import { Roster } from "../components/roster";
 import { Ballot } from "../components/ballot";
 import { Campaign } from "../components/campaign";
@@ -33,6 +34,7 @@ export default function GamePage() {
   const { outcome } = useTally(roundId, round?.settled ?? false);
   const prize = usePrize(game?.stage === Stage.Ended);
   const { sealed, markSealed } = useSealedLocally(round?.e3Id);
+  const feeToken = useFeeToken();
 
   // A game that cannot be read is not a game that is loading. Collapsing the two leaves a wrong
   // NEXT_PUBLIC_GAME_ADDRESS, a dead RPC and a chain with no contract at that address all showing
@@ -103,7 +105,7 @@ export default function GamePage() {
     <main className="un">
       {takeover && <CheckInTakeover state={checkIn} secondsLeft={secondsLeft} />}
 
-      <Masthead game={game} address={address} />
+      <Masthead game={game} address={address} pot={feeToken.format(game.pot)} symbol={feeToken.symbol} />
 
       <div className="un-wrap un-stack" style={{ gap: 18, paddingTop: 22 }}>
         {game.stage === Stage.Ended && game.winner !== ZERO_ADDRESS && (
@@ -120,9 +122,9 @@ export default function GamePage() {
             {/* The pot is already zero by the time this renders — settleRound pays out and clears it
                 in the same call — so the figure comes from the payout event, not from `pot`. */}
             <div className="un-payout">
-              <div className="un-payout-figure">{(prize ?? game.pot).toString()}</div>
+              <div className="un-payout-figure">{feeToken.format(prize ?? game.pot) ?? "—"}</div>
               <div className="un-label" style={{ color: "var(--un-ink)", marginTop: 6 }}>
-                Fee-token units · paid out
+                {feeToken.symbol ?? "tokens"} · paid out
               </div>
             </div>
           </section>
@@ -267,9 +269,14 @@ export default function GamePage() {
 const Masthead = ({
   game,
   address,
+  pot,
+  symbol,
 }: {
   game: { stage: Stage; alive: Address[]; jurors: Address[]; pot: bigint; roundCount: number };
   address?: Address;
+  /// Already formatted, or undefined while the fee token's decimals are unknown.
+  pot?: string;
+  symbol?: string;
 }) => (
   <header className="un-masthead">
     <h1 className="un-wordmark">UNRAVEL</h1>
@@ -279,7 +286,11 @@ const Masthead = ({
       </span>
       <span className="un-pill">{game.alive.length} STILL BREATHING</span>
       {game.jurors.length > 0 && <span className="un-pill">{game.jurors.length} ON THE JURY</span>}
-      <span className="un-pill">POT {game.pot.toString()}</span>
+      {pot && (
+        <span className="un-pill">
+          POT {pot} {symbol ?? ""}
+        </span>
+      )}
       {address && (
         <span className="un-pill un-pill-live" title={address}>
           {shortAddress(address)}
