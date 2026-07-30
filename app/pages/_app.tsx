@@ -4,6 +4,12 @@ import AlertContainer from "@/components/alert/alert-container";
 import { ErrorBoundary } from "@/components/errorBoundary";
 import "@aragon/ods/index.css";
 import "@/pages/globals.css";
+// Last, so the game's own tokens win inside `.un` without needing specificity tricks.
+//
+// Lives outside plugins/ deliberately: that directory is glob-imported at runtime to discover
+// plugins, and a stylesheet in there gets pulled into the glob and rejected as a non-App global CSS
+// import.
+import "@/styles/unravel.css";
 import { PUB_APP_NAME } from "@/constants";
 import Head from "next/head";
 

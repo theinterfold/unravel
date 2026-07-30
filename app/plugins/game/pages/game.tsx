@@ -1,18 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount, useWriteContract } from "wagmi";
-import { Button } from "@aragon/ods";
 import { PUB_GAME_ADDRESS } from "@/constants";
-import { AddressText } from "@/components/text/address";
-import { PleaseWaitSpinner } from "@/components/please-wait";
-import { MainSection } from "@/components/layout/main-section";
 
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 import { useGame, useRound, useCurrentRoundId, useTeams } from "../hooks/useGame";
+import { useCheckIn } from "../hooks/useCheckIn";
+import { useTally } from "../hooks/useTally";
+import { useSealedLocally } from "../hooks/useSealedLocally";
 import { Roster } from "../components/roster";
 import { Ballot } from "../components/ballot";
 import { Campaign } from "../components/campaign";
 import { RoundStatus } from "../components/roundStatus";
+import { Reveal } from "../components/reveal";
+import { CheckIn, CheckInTakeover, shouldTakeOver } from "../components/checkIn";
 import { RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
+import { shortAddress, sameAddress, tribe } from "../utils/tribes";
 import type { Address } from "viem";
 
 export default function GamePage() {
@@ -22,28 +24,43 @@ export default function GamePage() {
   const { round } = useRound(roundId);
   const { writeContractAsync, isPending } = useWriteContract();
   const [team, setTeam] = useState(1);
+  const now = useNow();
 
   const allPlayers = [...(game?.alive ?? []), ...(game?.jurors ?? [])];
   const teamOf = useTeams(allPlayers);
+  const checkIn = useCheckIn(address, roundId, game?.config.maxMissedCheckIns ?? 0);
+  const { outcome } = useTally(roundId, round?.settled ?? false);
+  const { sealed, markSealed } = useSealedLocally(round?.e3Id);
 
   if (isLoading || !game) {
     return (
-      <MainSection>
-        <PleaseWaitSpinner />
-      </MainSection>
+      <main className="un">
+        <div className="un-wrap" style={{ paddingTop: 80 }}>
+          <p className="un-label">Reading the board…</p>
+        </div>
+      </main>
     );
   }
 
-  const isAlive = !!address && game.alive.some((p) => eq(p, address));
-  const isJuror = !!address && game.jurors.some((p) => eq(p, address));
-  const now = BigInt(Math.floor(Date.now() / 1000));
+  const isAlive = !!address && game.alive.some((p) => sameAddress(p, address));
+  const isJuror = !!address && game.jurors.some((p) => sameAddress(p, address));
 
-  // Eligibility is the round's own voter list, which narrows in council rounds (one team) and jury
+  // Eligibility is the round's own voter list, which narrows in council rounds (one tribe) and jury
   // rounds (the dead) — not simply "everyone alive".
-  const isVoter = !!round && !!address && round.voters.some((v) => eq(v, address));
-  const canVote = isVoter && now >= round!.ballotOpensAt && now < round!.ballotClosesAt;
+  const isVoter = !!round && !!address && round.voters.some((v) => sameAddress(v, address));
   const inCampaign = !!round && now < round.ballotOpensAt;
+  const inBallot = !!round && now >= round.ballotOpensAt && now < round.ballotClosesAt;
+  const canVote = isVoter && inBallot;
   const merged = !!round && (round.kind === RoundKind.Individual || round.kind === RoundKind.Jury);
+
+  // What the player still owes, and therefore whether the clock is allowed to panic. Ballots are
+  // secret, so "have I voted?" is only knowable from this browser — see useSealedLocally.
+  const owesCheckIn = isAlive && !checkIn.current && !checkIn.immature;
+  const owesBallot = canVote && !sealed;
+  const owes = owesCheckIn || owesBallot;
+
+  const secondsLeft = round && inBallot ? round.ballotClosesAt - now : 0n;
+  const takeover = isAlive && shouldTakeOver(checkIn, secondsLeft);
 
   const call = (functionName: "startGame" | "openRound" | "settleRound") =>
     writeContractAsync({ address: PUB_GAME_ADDRESS, abi: SurvivalGameAbi, functionName, args: [] });
@@ -59,45 +76,98 @@ export default function GamePage() {
   const lobbySize = game.config.teamCount * game.config.membersPerTeam;
 
   return (
-    <MainSection>
-      <div className="flex w-full flex-col gap-6">
-        <Header stage={game.stage} winner={game.winner} aliveCount={game.alive.length} pot={game.pot} />
+    <main className="un">
+      {takeover && <CheckInTakeover state={checkIn} secondsLeft={secondsLeft} />}
+
+      <Masthead game={game} address={address} />
+
+      <div className="un-wrap un-stack" style={{ gap: 18, paddingTop: 22 }}>
+        {game.stage === Stage.Ended && game.winner !== ZERO_ADDRESS && (
+          <section className="un-certificate">
+            <div className="un-label" style={{ color: "var(--un-green)" }}>
+              Settled · {game.roundCount} rounds
+            </div>
+            <h2 className="un-verdict" style={{ marginTop: 14 }}>
+              {shortAddress(game.winner)} <em>wins</em>.
+            </h2>
+            <p className="un-mono" style={{ marginTop: 14, color: "#4c534c" }}>
+              POT {game.pot.toString()} PAID OUT
+            </p>
+          </section>
+        )}
 
         {game.stage === Stage.Lobby && (
-          <div className="box-border flex flex-col gap-3 rounded-xl border border-neutral-100 bg-neutral-0 p-4 xl:p-6">
-            <p className="text-sm text-neutral-600">
-              {game.alive.length} of {lobbySize} players joined — {game.config.teamCount} teams of{" "}
-              {game.config.membersPerTeam}.
+          <section className="un-panel un-stack">
+            <div className="un-label-dim">
+              Lobby · {game.alive.length} of {lobbySize} seats taken
+            </div>
+            <h2 className="un-title">Pick a tribe</h2>
+            <p className="un-note" style={{ maxWidth: "62ch" }}>
+              {game.config.teamCount} tribes of {game.config.membersPerTeam}. The game starts when every seat is full,
+              and anyone can start it — a full lobby is an objective fact, not a privilege.
             </p>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="un-row">
               <select
+                className="un-select"
                 value={team}
                 onChange={(e) => setTeam(Number(e.target.value))}
                 disabled={isAlive}
-                className="rounded-lg border border-neutral-100 bg-neutral-50 px-3 py-2 text-sm"
+                aria-label="Tribe"
               >
                 {Array.from({ length: game.config.teamCount }, (_, i) => i + 1).map((t) => (
                   <option key={t} value={t}>
-                    Team {t}
+                    {tribe(t)?.name ?? `TEAM ${t}`}
                   </option>
                 ))}
               </select>
-              <Button size="md" disabled={isPending || isAlive} onClick={joinTeam}>
-                {isAlive ? "You're in" : "Join"}
-              </Button>
-              <Button
-                size="md"
-                variant="tertiary"
+              <button type="button" className="un-btn" disabled={isPending || isAlive} onClick={() => void joinTeam()}>
+                {isAlive ? "You're in" : "Take a seat"}
+              </button>
+              <button
+                type="button"
+                className="un-btn un-btn-ghost"
                 disabled={isPending || game.alive.length !== lobbySize}
-                onClick={() => call("startGame")}
+                onClick={() => void call("startGame")}
               >
                 Start the game
-              </Button>
+              </button>
             </div>
-          </div>
+          </section>
         )}
 
-        {round && <RoundStatus round={round} tallyGrace={game.config.tallyGrace} />}
+        {round && <RoundStatus round={round} tallyGrace={game.config.tallyGrace} owes={owes} />}
+
+        {isAlive && round && !round.settled && !checkIn.immature && (
+          <CheckIn state={checkIn} secondsLeft={secondsLeft} />
+        )}
+
+        {round?.settled && <Reveal round={round} outcome={outcome} self={address} />}
+
+        {round && !round.settled && canVote && (
+          <Ballot round={round} canVote={canVote} self={address} onSealed={markSealed} />
+        )}
+
+        {round && !round.settled && isVoter && !canVote && !inCampaign && (
+          <section className="un-panel">
+            <div className="un-label-dim">Ballot closed</div>
+            <p className="un-note" style={{ marginTop: 8 }}>
+              The window has closed and the committee is decrypting. Only the totals come back.
+            </p>
+          </section>
+        )}
+
+        {round && !round.settled && !isVoter && (
+          <section className="un-panel">
+            <div className="un-label-dim">You are watching</div>
+            <p className="un-prose" style={{ marginTop: 8 }}>
+              {round.kind === RoundKind.Council
+                ? "Only the condemned tribe votes this round. You put them here; you do not get to choose which of them goes."
+                : round.kind === RoundKind.Jury
+                  ? "Only the eliminated vote in the jury round."
+                  : "You are not in this round's electorate."}
+            </p>
+          </section>
+        )}
 
         <Roster
           alive={game.alive}
@@ -106,75 +176,91 @@ export default function GamePage() {
           self={address}
           condemnedTeam={round?.kind === RoundKind.Council ? round.targetTeam : undefined}
           merged={merged}
+          openSeats={game.stage === Stage.Lobby ? Math.max(0, lobbySize - game.alive.length) : 0}
         />
 
-        {round && !round.settled && canVote && <Ballot round={round} canVote={canVote} self={address} />}
-
-        {round && !round.settled && isVoter && !canVote && !inCampaign && (
-          <p className="text-sm text-neutral-500">The ballot has closed. Waiting for the tally.</p>
-        )}
-
-        {round && !round.settled && !isVoter && (
-          <p className="text-sm text-neutral-500">
-            {round.kind === RoundKind.Council
-              ? "Only the condemned team votes this round. You are watching."
-              : round.kind === RoundKind.Jury
-                ? "Only the eliminated vote in the jury round."
-                : "You are not in this round's electorate."}
-          </p>
-        )}
-
         {round && roundId !== undefined && (
-          <Campaign round={roundId} canPost={inCampaign && isVoter && (isAlive || isJuror)} self={address} />
+          <Campaign
+            round={roundId}
+            canPost={inCampaign && isVoter && (isAlive || isJuror)}
+            self={address}
+            closed={!inCampaign}
+          />
         )}
 
-        {round && !round.settled && (
-          <div className="flex gap-2">
-            <Button size="md" variant="tertiary" disabled={isPending} onClick={() => call("settleRound")}>
-              Settle round
-            </Button>
-          </div>
-        )}
-
-        {round?.settled && game.stage !== Stage.Ended && (
-          <div className="flex gap-2">
-            <Button size="md" disabled={isPending} onClick={() => call("openRound")}>
-              Open the next round
-            </Button>
+        {/* Both are permissionless by design: the tally is public and the outcome is a pure function
+            of it, so anyone can push the game forward and nobody can stall it. */}
+        {round && (
+          <div className="un-row">
+            {!round.settled && (
+              <button
+                type="button"
+                className="un-btn un-btn-ghost un-btn-sm"
+                disabled={isPending}
+                onClick={() => void call("settleRound")}
+              >
+                Settle the round
+              </button>
+            )}
+            {round.settled && game.stage !== Stage.Ended && (
+              <button
+                type="button"
+                className="un-btn un-btn-ghost un-btn-sm"
+                disabled={isPending}
+                onClick={() => void call("openRound")}
+              >
+                Open the next round
+              </button>
+            )}
+            <span className="un-fine">Anyone can do this. It is a clock, not a privilege.</span>
           </div>
         )}
       </div>
-    </MainSection>
+    </main>
   );
 }
 
-const Header = ({
-  stage,
-  winner,
-  aliveCount,
-  pot,
+/// Cream chrome — the only place the game goes light while you are alive.
+const Masthead = ({
+  game,
+  address,
 }: {
-  stage: Stage;
-  winner: Address;
-  aliveCount: number;
-  pot: bigint;
+  game: { stage: Stage; alive: Address[]; pot: bigint; roundCount: number };
+  address?: Address;
 }) => (
-  <div className="flex flex-col gap-1">
-    <h1 className="text-3xl font-semibold text-neutral-800">UNRAVEL</h1>
-    {stage === Stage.Lobby && <p className="text-neutral-500">Waiting for players. Pick a team.</p>}
-    {stage === Stage.Playing && <p className="text-neutral-500">{aliveCount} left. One goes home each round.</p>}
-    {stage === Stage.Jury && (
-      <p className="text-neutral-500">Final two. The jury — everyone already voted out — picks the winner.</p>
-    )}
-    {stage === Stage.Ended && winner !== ZERO_ADDRESS && (
-      <p className="text-neutral-500">
-        Winner: <AddressText>{winner}</AddressText>
-      </p>
-    )}
-    <p className="text-sm text-neutral-400">Pot: {pot.toString()}</p>
-  </div>
+  <header className="un-masthead">
+    <h1 className="un-wordmark">UNRAVEL</h1>
+    <div className="un-row" style={{ gap: 16 }}>
+      <span className="un-mono" style={{ fontSize: 11, letterSpacing: ".18em", color: "#4c534c" }}>
+        {stageLabel(game.stage)} · {game.alive.length} ALIVE · POT {game.pot.toString()}
+      </span>
+      {address && (
+        <span className="un-tag un-tag-you" title={address}>
+          {shortAddress(address)}
+        </span>
+      )}
+    </div>
+  </header>
 );
 
-function eq(a: Address, b: Address) {
-  return a.toLowerCase() === b.toLowerCase();
+function stageLabel(stage: Stage): string {
+  switch (stage) {
+    case Stage.Lobby:
+      return "LOBBY";
+    case Stage.Playing:
+      return "IN PLAY";
+    case Stage.Jury:
+      return "JURY";
+    case Stage.Ended:
+      return "SETTLED";
+  }
+}
+
+function useNow(): bigint {
+  const [now, setNow] = useState(() => BigInt(Math.floor(Date.now() / 1000)));
+  useEffect(() => {
+    const id = setInterval(() => setNow(BigInt(Math.floor(Date.now() / 1000))), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
 }

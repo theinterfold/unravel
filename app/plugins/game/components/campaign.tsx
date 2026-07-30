@@ -1,25 +1,26 @@
 import { useState, type FC } from "react";
 import type { Address } from "viem";
-import { Button, TextAreaRichText } from "@aragon/ods";
-import { AddressText } from "@/components/text/address";
 import { uploadToPinata } from "@/utils/ipfs";
 import { useAlerts } from "@/context/Alerts";
 import { useCampaignFeed, useCampaignActions } from "../hooks/useCampaign";
+import { shortAddress, sameAddress } from "../utils/tribes";
 
 interface CampaignProps {
   round: number;
   /// Whether the connected wallet may post (a voter, during the campaign window).
   canPost: boolean;
   self?: Address;
+  /// Still readable after the window closes — just not writable.
+  closed?: boolean;
 }
 
 /// The public half of a round.
 ///
-/// Everything here is attributable and permanent. That asymmetry against the secret ballot is the
+/// Everything here is attributable and permanent. That asymmetry against the sealed ballot is the
 /// game: a promise made here costs nothing to break, and cannot be proven broken.
-export const Campaign: FC<CampaignProps> = ({ round, canPost, self }) => {
+export const Campaign: FC<CampaignProps> = ({ round, canPost, self, closed }) => {
   const { posts, isLoading } = useCampaignFeed(round);
-  const { post, checkIn, isPending } = useCampaignActions();
+  const { post, isPending } = useCampaignActions();
   const { addAlert } = useAlerts();
   const [draft, setDraft] = useState("");
 
@@ -37,48 +38,71 @@ export const Campaign: FC<CampaignProps> = ({ round, canPost, self }) => {
   };
 
   return (
-    <div className="box-border flex w-full flex-col gap-4 rounded-xl border border-neutral-100 bg-neutral-0 p-4 xl:p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-neutral-800">Campaign</h2>
-          <p className="text-sm text-neutral-500">
-            Public and signed with your name. Say what you like — you are not bound by it.
-          </p>
+    <section className="un-panel un-stack">
+      <div className="un-spread">
+        <div className="un-label-dim">
+          Campaign · round {String(round + 1).padStart(2, "0")}
+          {closed ? " · closed, still readable" : ""}
         </div>
-        <Button size="sm" variant="tertiary" disabled={isPending} onClick={() => checkIn()}>
-          Check in
-        </Button>
       </div>
 
+      <p className="un-fine" style={{ maxWidth: "68ch" }}>
+        Public and signed with your name. Say what you like — you are not bound by it, and nobody can prove you broke
+        it.
+      </p>
+
       {canPost && (
-        <div className="flex flex-col gap-2">
-          <TextAreaRichText value={draft} onChange={(value: string) => setDraft(value ?? "")} />
-          <div>
-            <Button size="md" disabled={isPending || !draft.trim()} onClick={submit}>
-              {isPending ? "Posting..." : "Post"}
-            </Button>
+        <div className="un-stack" style={{ gap: 10 }}>
+          <textarea
+            className="un-textarea"
+            value={draft}
+            maxLength={2000}
+            placeholder="Make your case."
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <div className="un-row">
+            <button
+              type="button"
+              className="un-btn"
+              disabled={isPending || !draft.trim()}
+              onClick={() => void submit()}
+            >
+              {isPending ? "Posting…" : "Post"}
+            </button>
+            <span className="un-fine">Signed, permanent, and on the record.</span>
           </div>
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
-        {isLoading && posts.length === 0 && <p className="text-sm text-neutral-500">Loading...</p>}
-        {!isLoading && posts.length === 0 && <p className="text-sm text-neutral-500">Nobody has said anything yet.</p>}
+      <div className="un-stack" style={{ gap: 10 }}>
+        {isLoading && posts.length === 0 && <p className="un-fine">Loading…</p>}
+        {!isLoading && posts.length === 0 && <p className="un-fine">Nobody has said anything yet.</p>}
         {posts.map((entry) => (
-          <div key={`${entry.player}-${entry.blockNumber}-${entry.cid}`} className="rounded-lg bg-neutral-50 p-3">
-            <div className="mb-1 flex items-center gap-2 text-xs text-neutral-500">
-              <AddressText asLink={false}>{entry.player}</AddressText>
-              {self && entry.player.toLowerCase() === self.toLowerCase() && (
-                <span className="rounded bg-primary-100 px-2 py-0.5 text-primary-700">you</span>
-              )}
+          <article key={`${entry.player}-${entry.blockNumber}-${entry.cid}`} className="un-panel-ink">
+            <div className="un-row" style={{ gap: 10, marginBottom: 8 }}>
+              <span className="un-mono" style={{ color: "var(--un-fg-2)", fontSize: 13 }}>
+                {shortAddress(entry.player)}
+              </span>
+              {sameAddress(entry.player, self) && <span className="un-tag un-tag-you">YOU</span>}
+              <span className="un-mono" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--un-dim-2)" }}>
+                BLOCK {entry.blockNumber.toString()}
+              </span>
             </div>
             <CampaignBody cid={entry.cid} />
-          </div>
+          </article>
         ))}
       </div>
-    </div>
+    </section>
   );
 };
 
 /// Posts are stored off-chain; the event only carries the pointer.
-const CampaignBody: FC<{ cid: string }> = ({ cid }) => <p className="break-all text-sm text-neutral-700">{cid}</p>;
+///
+/// The CID is rendered as the CID rather than dressed up as a message, because fetching it is a
+/// separate concern and a half-loaded feed that silently shows nothing is worse than one that shows
+/// exactly what the chain has.
+const CampaignBody: FC<{ cid: string }> = ({ cid }) => (
+  <p className="un-mono" style={{ fontSize: 12, wordBreak: "break-all", color: "var(--un-fg-3)" }}>
+    {cid}
+  </p>
+);

@@ -1,0 +1,952 @@
+/*
+ * UNRAVEL — the game's design system.
+ *
+ * Self-contained CSS rather than Tailwind utilities, because this is a closed visual language with
+ * hard rules (see "what colour is not allowed to do" below) and those rules are easier to hold in
+ * one file than to re-derive at every call site. The rest of the app keeps its own styling; this
+ * only governs the game surfaces.
+ *
+ * Every colour is a flat token. The only gradient in the system is the dot-field's radial, and the
+ * only sweep is the one on the proof bar.
+ */
+
+:root {
+  /* Ground */
+  --un-ink: #14171a; /* the game ground — every play screen */
+  --un-panel: #1c211f; /* raised cards, HUD blocks */
+  --un-panel-dim: #191d1b; /* the eliminated */
+  --un-line: #2a2f2c;
+  --un-line-2: #3a423c;
+
+  /* Light surfaces. Cream is chrome; mint is for reading; white is an event. */
+  --un-cream: #f2f1ec;
+  --un-mint: #e9f2ea;
+  --un-paper: #ffffff;
+
+  /* Meaning. Green is never a tribe and red is never a tribe. */
+  --un-sage: #8fa596; /* privacy, and only privacy */
+  --un-pistachio: #a7e7c0; /* act now — one per screen, maximum */
+  --un-green: #2f7d47; /* sealed, done, safe */
+  --un-condemned: #e24a3a; /* on the block, or about to die of neglect */
+  --un-condemned-soft: #ff8a7a;
+
+  /* Text on ink */
+  --un-fg: #f2f1ec;
+  --un-fg-2: #cfd8d0;
+  --un-fg-3: #b9c4bb;
+  --un-fg-4: #8fa596;
+  --un-dim: #7d867e;
+  --un-dim-2: #5d655e;
+
+  /* The four tribes. Loud on purpose: tribe colour is the fastest read in the game. */
+  --un-tribe-1: oklch(0.75 0.15 68); /* CINDER */
+  --un-tribe-2: oklch(0.76 0.12 215); /* SALT */
+  --un-tribe-3: oklch(0.83 0.16 108); /* VERGE */
+  --un-tribe-4: oklch(0.72 0.13 300); /* THORN */
+
+  --un-serif: "Playfair Display", Georgia, serif;
+  --un-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --un-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@keyframes un-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes un-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(420%);
+  }
+}
+@keyframes un-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0.1;
+  }
+}
+@keyframes un-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes un-alarm {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(226, 74, 58, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(226, 74, 58, 0);
+  }
+}
+
+/* Motion is informational here, never decorative — so it all goes when the OS says so. */
+@media (prefers-reduced-motion: reduce) {
+  .un *,
+  .un *::before,
+  .un *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ─── Shell ──────────────────────────────────────────────────────────────────────────────────── */
+
+.un {
+  background: var(--un-ink);
+  color: var(--un-fg-2);
+  font-family: var(--un-sans);
+  min-height: 100vh;
+}
+
+.un-wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 20px 96px;
+}
+
+.un-masthead {
+  background: var(--un-cream);
+  color: var(--un-ink);
+  border-bottom: 1px solid var(--un-ink);
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.un-wordmark {
+  font-family: var(--un-serif);
+  font-size: 25px;
+  letter-spacing: -0.01em;
+  margin: 0;
+  font-weight: 400;
+}
+
+/* ─── Type ───────────────────────────────────────────────────────────────────────────────────── */
+
+/* Playfair is the ceremony: verdicts, round names, anything the game says *to* you. */
+.un-verdict {
+  font-family: var(--un-serif);
+  font-size: clamp(28px, 5vw, 46px);
+  line-height: 1.06;
+  color: var(--un-fg);
+  margin: 0;
+  font-weight: 400;
+}
+.un-verdict em {
+  color: var(--un-condemned);
+}
+
+.un-prose {
+  font-family: var(--un-serif);
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--un-fg-2);
+  max-width: 58ch;
+}
+
+/* Poppins is the machine you operate. */
+.un-title {
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: -0.01em;
+  color: var(--un-fg);
+  margin: 0;
+}
+
+/* Mono is the chain's own voice: if it's mono, it came from the contract. */
+.un-label {
+  font-family: var(--un-mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--un-pistachio);
+  text-transform: uppercase;
+}
+.un-label-dim {
+  font-family: var(--un-mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--un-dim);
+  text-transform: uppercase;
+}
+.un-mono {
+  font-family: var(--un-mono);
+  font-size: 12px;
+  color: var(--un-fg-4);
+}
+
+.un-note {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--un-fg-3);
+}
+.un-fine {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--un-dim);
+}
+
+/* ─── Panels ─────────────────────────────────────────────────────────────────────────────────── */
+
+.un-panel {
+  background: var(--un-panel);
+  padding: 22px 24px;
+}
+.un-panel-ink {
+  background: var(--un-ink);
+  border: 1px solid var(--un-line);
+  padding: 22px 24px;
+}
+.un-stack {
+  display: grid;
+  gap: 16px;
+}
+.un-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.un-spread {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.un-rule {
+  height: 1px;
+  background: var(--un-line);
+  border: 0;
+  margin: 0;
+}
+
+/* The dot field marks a cryptographic thing happening. If it shows up as decoration it stops
+   reading as privacy, so it lives on exactly two components: sealing, and the sealed receipt. */
+.un-dotfield {
+  position: relative;
+  overflow: hidden;
+}
+.un-dotfield::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(var(--un-sage) 0.9px, transparent 1px), radial-gradient(var(--un-sage) 0.7px, transparent 0.8px);
+  background-size:
+    11px 11px,
+    17px 17px;
+  background-position:
+    0 0,
+    5px 8px;
+  opacity: 0.16;
+  pointer-events: none;
+}
+.un-dotfield > * {
+  position: relative;
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────────────────────────────── */
+
+.un-btn {
+  cursor: pointer;
+  border: 0;
+  font-family: var(--un-sans);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 14px 22px;
+  background: var(--un-pistachio);
+  color: var(--un-ink);
+  transition: filter 0.15s ease;
+}
+.un-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.un-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.un-btn-ghost {
+  background: transparent;
+  color: var(--un-fg-2);
+  border: 1px solid var(--un-line-2);
+  font-weight: 500;
+}
+.un-btn-ghost:hover:not(:disabled) {
+  border-color: var(--un-sage);
+  filter: none;
+}
+.un-btn-danger {
+  background: var(--un-condemned);
+  color: #fff;
+}
+.un-btn-block {
+  width: 100%;
+}
+.un-btn-sm {
+  padding: 9px 16px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.un-select {
+  font-family: var(--un-mono);
+  font-size: 13px;
+  background: var(--un-panel);
+  color: var(--un-fg);
+  border: 1px solid var(--un-line-2);
+  padding: 13px 14px;
+}
+
+.un-textarea {
+  width: 100%;
+  font-family: var(--un-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--un-panel);
+  color: var(--un-fg);
+  border: 1px solid var(--un-line-2);
+  padding: 14px;
+  resize: vertical;
+  min-height: 96px;
+}
+.un-textarea::placeholder {
+  color: var(--un-dim-2);
+}
+
+/* ─── Round badges ───────────────────────────────────────────────────────────────────────────── */
+
+/* Five round types, five badges. Only two get a coloured frame: COUNCIL, because somebody is
+   definitely dying, and IMMUNITY, because it is the one round where votes are public. */
+.un-badge {
+  border: 1px solid var(--un-line);
+  padding: 14px 12px;
+  text-align: center;
+  min-width: 104px;
+}
+.un-badge-mark {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.un-badge-name {
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: 0.1em;
+  color: var(--un-fg);
+  margin-top: 8px;
+}
+.un-badge-rule {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--un-dim);
+  margin-top: 5px;
+}
+.un-badge-council {
+  border-color: var(--un-condemned);
+  background: rgba(226, 74, 58, 0.12);
+}
+.un-badge-council .un-badge-rule {
+  color: #e8a99f;
+}
+.un-badge-immunity {
+  border-color: var(--un-pistachio);
+  background: rgba(167, 231, 192, 0.1);
+}
+.un-badge-immunity .un-badge-rule {
+  color: var(--un-pistachio);
+}
+
+/* ─── Clock and phase track ──────────────────────────────────────────────────────────────────── */
+
+.un-track {
+  display: flex;
+  gap: 4px;
+}
+.un-seg {
+  flex: 1;
+  background: var(--un-panel);
+  border-top: 3px solid var(--un-line);
+  padding: 9px 12px;
+  min-width: 0;
+}
+.un-seg-name {
+  font-family: var(--un-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--un-dim);
+}
+.un-seg-val {
+  font-family: var(--un-mono);
+  font-size: 10px;
+  color: var(--un-dim-2);
+  margin-top: 3px;
+}
+.un-seg-done {
+  border-top-color: var(--un-line-2);
+}
+.un-seg-live {
+  background: var(--un-pistachio);
+  border-top-color: var(--un-pistachio);
+}
+.un-seg-live .un-seg-name,
+.un-seg-live .un-seg-val {
+  color: var(--un-ink);
+}
+.un-seg-live .un-seg-val {
+  animation: un-blink 1.8s ease-in-out infinite;
+}
+
+/* The clock is always the largest object on the screen. */
+.un-clock {
+  font-weight: 800;
+  font-size: clamp(56px, 13vw, 92px);
+  line-height: 0.84;
+  color: var(--un-pistachio);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+}
+/* It only panics if *you* still owe something. Voted and checked in? It stays green and quiet
+   while everyone else sweats. */
+.un-clock-owed {
+  color: var(--un-condemned);
+}
+.un-clock-rush {
+  animation: un-blink 1s steps(1) infinite;
+}
+.un-clock-cap {
+  font-family: var(--un-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  color: var(--un-dim);
+  margin-top: 10px;
+}
+.un-clock-cap-owed {
+  color: var(--un-condemned);
+}
+
+/* ─── Player pieces ──────────────────────────────────────────────────────────────────────────── */
+
+/* A player is a tribe bar, an address and a state. No avatars — the address is the face. */
+.un-piece {
+  display: flex;
+  align-items: stretch;
+  background: var(--un-panel);
+}
+.un-piece-bar {
+  width: 8px;
+  flex: 0 0 8px;
+  background: var(--un-line-2);
+}
+.un-piece-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.un-piece-addr {
+  font-family: var(--un-mono);
+  font-size: 14px;
+  color: var(--un-fg);
+}
+.un-piece-tribe {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+.un-piece-state {
+  margin-left: auto;
+  font-family: var(--un-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--un-dim);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.un-piece-you {
+  outline: 2px solid var(--un-pistachio);
+}
+.un-piece-block {
+  background: rgba(226, 74, 58, 0.14);
+  outline: 2px solid var(--un-condemned);
+}
+.un-piece-out {
+  background: var(--un-panel-dim);
+  opacity: 0.6;
+}
+.un-piece-out .un-piece-addr {
+  color: var(--un-sage);
+  text-decoration: line-through;
+}
+.un-piece-open {
+  border: 1px dashed var(--un-line-2);
+  background: transparent;
+}
+
+.un-tag {
+  font-family: var(--un-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  padding: 3px 8px;
+}
+.un-tag-you {
+  background: var(--un-pistachio);
+  color: var(--un-ink);
+}
+.un-tag-block {
+  background: var(--un-condemned);
+  color: #fff;
+}
+.un-tag-jury {
+  border: 1px solid var(--un-line-2);
+  color: var(--un-sage);
+}
+.un-ring {
+  width: 15px;
+  height: 15px;
+  border: 2.5px solid var(--un-pistachio);
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+/* ─── Check-in ───────────────────────────────────────────────────────────────────────────────── */
+
+/* Three lives, spent by forgetting. Escalates in three steps; the last takes over the screen. */
+.un-checkin {
+  background: var(--un-panel);
+  border-left: 4px solid var(--un-green);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.un-checkin-warn {
+  background: rgba(167, 231, 192, 0.09);
+  border-left-color: var(--un-pistachio);
+}
+.un-checkin-final {
+  background: rgba(226, 74, 58, 0.14);
+  border-left-color: var(--un-condemned);
+  display: block;
+}
+.un-pips {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.un-pip {
+  width: 26px;
+  height: 6px;
+  background: var(--un-line);
+}
+.un-pip-ok {
+  background: var(--un-green);
+}
+.un-pip-warn {
+  background: var(--un-pistachio);
+}
+.un-pip-bad {
+  background: var(--un-condemned);
+}
+.un-pip-next {
+  animation: un-blink 0.9s steps(1) infinite;
+}
+.un-checkin-text {
+  font-family: var(--un-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: #7fbf95;
+}
+.un-checkin-warn .un-checkin-text {
+  color: var(--un-pistachio);
+}
+.un-checkin-final .un-checkin-text {
+  color: var(--un-condemned-soft);
+}
+
+/* The one takeover in the whole product, which is exactly why it works. */
+.un-takeover {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--un-condemned);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 32px;
+  text-align: center;
+}
+.un-takeover-line {
+  font-family: var(--un-serif);
+  font-size: clamp(26px, 6vw, 44px);
+  line-height: 1.15;
+  max-width: 20ch;
+}
+.un-takeover .un-btn {
+  background: #fff;
+  color: var(--un-condemned);
+  font-size: 18px;
+  padding: 22px 40px;
+  animation: un-alarm 1.6s ease-out infinite;
+}
+
+/* ─── Ballot ─────────────────────────────────────────────────────────────────────────────────── */
+
+.un-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  background: var(--un-panel);
+  border: 1px solid var(--un-line);
+  border-left: 8px solid var(--un-line-2);
+  color: var(--un-fg);
+  padding: 15px 16px;
+  cursor: pointer;
+  font-family: var(--un-sans);
+  font-size: 15px;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.un-option:hover:not(:disabled) {
+  border-color: var(--un-sage);
+}
+.un-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.un-option-on {
+  background: rgba(167, 231, 192, 0.1);
+  border-color: var(--un-pistachio);
+  outline: 1px solid var(--un-pistachio);
+}
+.un-option-name {
+  font-family: var(--un-mono);
+  font-size: 14.5px;
+}
+.un-option-note {
+  margin-left: auto;
+  font-family: var(--un-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--un-dim);
+}
+
+/* ─── Sealing — the 45-90 second state ───────────────────────────────────────────────────────── */
+
+.un-seal {
+  background: var(--un-panel);
+  border: 1px solid var(--un-line);
+  padding: 22px;
+}
+.un-seal-elapsed {
+  font-weight: 800;
+  font-size: 64px;
+  line-height: 0.84;
+  color: var(--un-fg);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+}
+.un-seal-bar {
+  height: 8px;
+  background: var(--un-ink);
+  margin: 18px 0 12px;
+  position: relative;
+  overflow: hidden;
+}
+.un-seal-fill {
+  height: 100%;
+  background: var(--un-pistachio);
+  transition: width 0.9s linear;
+}
+.un-seal-sweep {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 24%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: un-sweep 2.2s linear infinite;
+}
+.un-seal-keep {
+  background: var(--un-pistachio);
+  color: var(--un-ink);
+  padding: 13px 14px;
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  font-weight: 500;
+}
+.un-seal-steps {
+  display: grid;
+  gap: 8px;
+  font-family: var(--un-mono);
+  font-size: 11.5px;
+  border-top: 1px solid var(--un-line);
+  margin-top: 16px;
+  padding-top: 14px;
+}
+.un-seal-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--un-dim-2);
+}
+.un-seal-step-now {
+  color: var(--un-fg);
+}
+.un-seal-step-done {
+  color: var(--un-fg-4);
+}
+.un-seal-tick {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  background: var(--un-line);
+}
+.un-seal-step-now .un-seal-tick {
+  background: var(--un-pistachio);
+  animation: un-breathe 1.4s ease-in-out infinite;
+}
+.un-seal-step-done .un-seal-tick {
+  background: var(--un-green);
+}
+
+/* Sealed. Done. Safe. */
+.un-receipt {
+  background: var(--un-green);
+  padding: 20px;
+}
+.un-receipt-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 10px;
+}
+.un-receipt-mark {
+  width: 20px;
+  height: 20px;
+  background: #eaf6ec;
+  color: var(--un-green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+.un-receipt-title {
+  font-weight: 700;
+  font-size: 19px;
+  color: #fff;
+}
+.un-receipt-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #d7ecdc;
+}
+.un-receipt-chain {
+  font-family: var(--un-mono);
+  font-size: 10.5px;
+  line-height: 1.8;
+  color: #b6d9bf;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  margin-top: 14px;
+  padding-top: 11px;
+  word-break: break-all;
+}
+.un-receipt-chain a {
+  color: #fff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* Green, not red: waiting on the committee is a normal state of a distributed system. */
+.un-waiting {
+  background: var(--un-panel);
+  border: 1px solid var(--un-pistachio);
+  padding: 18px 20px;
+}
+.un-waiting-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.un-waiting-dot {
+  width: 12px;
+  height: 12px;
+  border: 2.5px solid var(--un-pistachio);
+  border-radius: 50%;
+  flex: 0 0 auto;
+  animation: un-breathe 1.8s ease-in-out infinite;
+}
+.un-waiting-title {
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--un-fg);
+}
+
+.un-error {
+  border-left: 4px solid var(--un-condemned);
+  background: rgba(226, 74, 58, 0.1);
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #f4d9d5;
+}
+
+/* ─── The reveal ─────────────────────────────────────────────────────────────────────────────── */
+
+/* The only motion in the game that carries information: bars slam in from zero, 120ms apart, in
+   the order the contract emitted them. */
+.un-tally-row {
+  animation: un-rise 0.5s ease-out both;
+}
+.un-tally-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  gap: 12px;
+}
+.un-tally-name {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  color: var(--un-fg-2);
+  font-family: var(--un-mono);
+}
+.un-tally-count {
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1;
+  color: var(--un-fg-2);
+  font-variant-numeric: tabular-nums;
+}
+.un-tally-bar {
+  height: 10px;
+  background: var(--un-line-2);
+  min-width: 3px;
+  transition: width 0.4s ease-out;
+}
+.un-tally-lead .un-tally-name,
+.un-tally-lead .un-tally-count {
+  color: #fff;
+}
+.un-tally-lead .un-tally-bar {
+  background: var(--un-condemned);
+}
+.un-tally-lead .un-tally-count {
+  color: var(--un-condemned);
+}
+.un-tally-zero .un-tally-name,
+.un-tally-zero .un-tally-count {
+  color: var(--un-sage);
+}
+.un-tally-zero .un-tally-bar {
+  background: var(--un-line);
+}
+
+/* ─── Reading surfaces ───────────────────────────────────────────────────────────────────────── */
+
+/* Light mode is where you go when you stop playing and start judging. */
+.un-chamber {
+  background: var(--un-mint);
+  color: var(--un-ink);
+  padding: 24px;
+}
+.un-chamber .un-label {
+  color: var(--un-green);
+}
+.un-chamber .un-note,
+.un-chamber .un-fine {
+  color: #4c534c;
+}
+.un-chamber .un-prose {
+  color: #333;
+}
+
+/* White is an event. */
+.un-certificate {
+  background: var(--un-paper);
+  color: var(--un-ink);
+  padding: 40px 32px;
+  text-align: center;
+}
+.un-certificate .un-verdict {
+  color: var(--un-ink);
+}
+.un-certificate .un-verdict em {
+  color: var(--un-green);
+}
+
+/* ─── Layout helpers ─────────────────────────────────────────────────────────────────────────── */
+
+.un-grid-2 {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+.un-grid-auto {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+}
+@media (min-width: 900px) {
+  .un-grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .un-grid-2-wide {
+    grid-template-columns: 1.3fr 1fr;
+  }
+}
+
+/* The 90-second rule: on a phone, nothing may exceed 20px except the clock and a verdict. */
+@media (max-width: 640px) {
+  .un-title {
+    font-size: 19px;
+  }
+  .un-prose,
+  .un-note {
+    font-size: 14px;
+  }
+  .un-panel,
+  .un-panel-ink {
+    padding: 18px 16px;
+  }
+}

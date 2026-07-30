@@ -14,6 +14,13 @@ export default function Document() {
           href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400;1,8..60,500&display=swap"
           rel="stylesheet"
         />
+        {/* UNRAVEL's three voices: Playfair is the ceremony, Poppins is the machine you operate,
+            IBM Plex Mono is the chain's own voice. Loaded alongside the Interfold faces above
+            rather than replacing them, because only the game surfaces use them. */}
+        <link
+          href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400;1,500&family=Poppins:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+          rel="stylesheet"
+        />
       </Head>
       <body className="bg-neutral-50">
         <Main />

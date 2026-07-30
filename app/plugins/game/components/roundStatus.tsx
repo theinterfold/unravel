@@ -1,162 +1,234 @@
-import { useEffect, useState, type FC } from "react";
-import { ROUND_KIND_LABEL, type Round, type RoundPhase } from "../utils/gameTypes";
+import { useEffect, useState, type FC, type ReactNode } from "react";
+import { RoundKind, type Round, type RoundPhase } from "../utils/gameTypes";
+import { ROUND_BADGE, ROUND_RULE, formatClock, formatCountdown } from "../utils/tribes";
 import { useE3State } from "../hooks/useE3State";
 
 interface RoundStatusProps {
   round: Round;
   tallyGrace: bigint;
+  /// Whether the connected player still owes an action this round. Drives the only alarm state the
+  /// clock has — see below.
+  owes?: boolean;
 }
 
-const PHASE_COPY: Record<RoundPhase, { label: string; blurb: string }> = {
-  campaign: {
-    label: "Campaign",
-    blurb: "Talk in public. Nothing you say here is binding — and everyone knows it.",
-  },
-  ballot: {
-    label: "Ballot",
-    blurb: "Votes are being cast, encrypted. Re-vote as often as you like; the last one counts.",
-  },
-  tally: {
-    label: "Tally",
-    blurb: "The committee is decrypting. Only the totals come back — never who cast what.",
-  },
-  settled: {
-    label: "Settled",
-    blurb: "The round is closed.",
-  },
+const PHASE_COPY: Record<RoundPhase, string> = {
+  campaign: "Talk in public. Nothing you say here is binding — and everyone knows it.",
+  ballot: "Votes are being cast, sealed. Re-vote as often as you like; the last one counts.",
+  tally: "The committee is decrypting. Only the totals come back — never who cast what.",
+  settled: "The round is closed.",
 };
 
-/// Round clock and E3 state.
+/// The persistent frame: which round, which kind, which phase, and how long is left.
 ///
-/// Rounds advance on wall-clock time, not on transactions, so the countdown ticks locally rather
-/// than waiting for an event that will never arrive.
+/// The clock counts the current phase only. A player should never have to do arithmetic, and the
+/// three-segment track exists so the phases they are *not* in stay visible without competing.
 ///
-/// The committee-key line is the important part. A round opens its ballot window on a timer, but a
-/// vote cannot be encrypted until the committee has published its key — which takes minutes. Without
-/// showing that, the UI presents an open ballot that silently rejects every vote, and the only
-/// symptom is failure.
-export const RoundStatus: FC<RoundStatusProps> = ({ round, tallyGrace }) => {
+/// The clock only panics if the player still owes something. Voted and checked in? It stays green
+/// and quiet while everyone else sweats — that asymmetry is the reward for being organised, and it
+/// keeps the red state meaning exactly one thing.
+export const RoundStatus: FC<RoundStatusProps> = ({ round, tallyGrace, owes = false }) => {
   const now = useNow();
   const { e3, unavailable } = useE3State(round.e3Id);
 
   const phase = derivePhase(round, now);
   const target = nextBoundary(round, phase, tallyGrace);
-  const copy = PHASE_COPY[phase];
-
-  const settleAt = round.ballotClosesAt + tallyGrace;
-  const elapsed = Number(now - round.openedAt);
-  const total = Number(settleAt - round.openedAt);
-  const progress = total > 0 ? Math.min(100, Math.max(0, (elapsed / total) * 100)) : 0;
+  const remaining = target !== undefined && target > now ? target - now : 0n;
+  const rush = owes && remaining > 0n && remaining <= 90n;
+  const badge = ROUND_BADGE[round.kind];
 
   return (
-    <div className="box-border flex w-full flex-col gap-4 rounded-xl border border-neutral-100 bg-neutral-0 p-4 xl:p-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-semibold text-neutral-800">
-          Round {round.id + 1} · {ROUND_KIND_LABEL[round.kind]} — {copy.label}
-        </h2>
-        {target !== undefined && target > now ? (
-          <span className="font-mono text-sm text-neutral-700">{formatCountdown(target - now)} left</span>
-        ) : (
-          phase === "tally" && <span className="text-sm text-neutral-500">awaiting the tally</span>
-        )}
+    <section className="un-panel un-stack">
+      <div className="un-spread">
+        <div>
+          <div className="un-label">
+            Round {String(round.id + 1).padStart(2, "0")} · {badge.name}
+          </div>
+          <p className="un-note" style={{ marginTop: 6, maxWidth: "62ch" }}>
+            {ROUND_RULE[round.kind]}
+          </p>
+        </div>
+        <RoundMark kind={round.kind} />
       </div>
 
-      <p className="text-sm text-neutral-500">{copy.blurb}</p>
-
-      {/* Where this round sits between opening and settlement. */}
-      <div>
-        <div className="h-1.5 w-full overflow-hidden rounded bg-neutral-100">
-          <div className="h-1.5 rounded bg-primary-500 transition-all" style={{ width: `${progress}%` }} />
-        </div>
-        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-          <Marker
-            label="Campaign"
-            at={round.openedAt}
-            active={phase === "campaign"}
-            done={now >= round.ballotOpensAt}
-          />
-          <Marker
-            label="Ballot"
-            at={round.ballotOpensAt}
-            active={phase === "ballot"}
-            done={now >= round.ballotClosesAt}
-          />
-          <Marker label="Tally" at={round.ballotClosesAt} active={phase === "tally"} done={round.settled} />
-        </div>
+      <div className="un-track">
+        <Segment
+          name="Campaign"
+          live={phase === "campaign"}
+          done={now >= round.ballotOpensAt}
+          value={
+            phase === "campaign" ? "OPEN NOW" : now >= round.ballotOpensAt ? "CLOSED" : formatClock(round.openedAt)
+          }
+        />
+        <Segment
+          name="Ballot"
+          live={phase === "ballot"}
+          done={now >= round.ballotClosesAt}
+          value={
+            phase === "ballot" ? "OPEN NOW" : now >= round.ballotClosesAt ? "CLOSED" : formatClock(round.ballotOpensAt)
+          }
+        />
+        <Segment
+          name="Tally"
+          live={phase === "tally"}
+          done={round.settled}
+          value={round.settled ? "SETTLED" : phase === "tally" ? "DECRYPTING" : formatClock(round.ballotClosesAt)}
+        />
       </div>
 
-      {/* Committee readiness — the thing that actually gates voting. */}
       {!round.settled && (
-        <div className="flex flex-col gap-2 rounded-lg bg-neutral-50 p-3 text-sm">
-          {unavailable && !e3 && (
-            <Line tone="muted" text="Waiting for the coordination server to pick up this round…" />
-          )}
-
-          {e3 && !e3.keyPublished && (
-            <Line
-              tone="warn"
-              text="The committee is still generating its key. Voting is impossible until it publishes — this normally takes a few minutes."
-            />
-          )}
-
-          {e3?.keyPublished && phase === "campaign" && (
-            <Line tone="ok" text="Committee key published. Ballots open when the campaign ends." />
-          )}
-
-          {e3?.keyPublished && phase === "ballot" && (
-            <Line tone="ok" text="Committee key published. Ballots are open." />
-          )}
-
-          {e3 && (
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-neutral-500">
-              <span>
-                E3 <span className="font-mono text-neutral-700">#{round.e3Id.toString()}</span>
-              </span>
-              <span>
-                ballots cast <span className="font-mono text-neutral-700">{e3.voteCount}</span>
-              </span>
-              <span>
-                round state <span className="font-mono text-neutral-700">{e3.status}</span>
-              </span>
-            </div>
-          )}
+        <div>
+          <div
+            className={`un-clock ${owes ? "un-clock-owed" : ""} ${rush ? "un-clock-rush" : ""}`}
+            // Announced politely: a countdown that interrupts a screen reader every second is worse
+            // than one that is never announced at all.
+            role="timer"
+            aria-live="off"
+          >
+            {remaining > 0n ? formatCountdown(remaining) : "—"}
+          </div>
+          <div className={`un-clock-cap ${owes ? "un-clock-cap-owed" : ""}`}>{phaseCaption(phase, owes, rush)}</div>
         </div>
       )}
 
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-neutral-500 sm:grid-cols-4">
-        <Stat label="Opened" value={formatClock(round.openedAt)} />
-        <Stat label="Ballot opens" value={formatClock(round.ballotOpensAt)} />
-        <Stat label="Ballot closes" value={formatClock(round.ballotClosesAt)} />
-        <Stat label="Settles from" value={formatClock(settleAt)} />
-      </dl>
-    </div>
+      <p className="un-fine">{PHASE_COPY[phase]}</p>
+
+      {/* The committee is what actually gates voting. A ballot window opening on a timer says
+          nothing about whether a vote can be encrypted yet. */}
+      {!round.settled && (
+        <>
+          {unavailable && !e3 && <Line tone="wait" text="Waiting for the coordination server to pick up this round." />}
+          {e3 && !e3.keyPublished && (
+            <Line
+              tone="wait"
+              text="The committee is still generating its key. Nothing can be sealed until it publishes — usually a few minutes."
+            />
+          )}
+          {e3?.keyPublished && (
+            <Line
+              tone="ok"
+              text={
+                phase === "campaign"
+                  ? "Committee key published. Ballots open when the campaign ends."
+                  : "Committee key published. Ballots are open."
+              }
+            />
+          )}
+        </>
+      )}
+
+      <div className="un-row" style={{ gap: 22, borderTop: "1px solid var(--un-line)", paddingTop: 14 }}>
+        <Fact label="E3" value={`#${round.e3Id.toString()}`} />
+        <Fact label="Ballot closes" value={formatClock(round.ballotClosesAt)} />
+        <Fact label="Settles from" value={formatClock(round.ballotClosesAt + tallyGrace)} />
+        {/* Deliberately absent: how many have voted. Before decryption that number does not exist,
+            and showing the server's running count would imply the ballot is observable. */}
+      </div>
+    </section>
   );
 };
 
-const Marker: FC<{ label: string; at: bigint; active: boolean; done: boolean }> = ({ label, at, active, done }) => (
-  <div className={active ? "text-primary-700" : done ? "text-neutral-400" : "text-neutral-500"}>
-    <div className={active ? "font-semibold" : ""}>{label}</div>
-    <div className="font-mono">{formatClock(at)}</div>
+const Segment: FC<{ name: string; value: string; live: boolean; done: boolean }> = ({ name, value, live, done }) => (
+  <div className={`un-seg ${live ? "un-seg-live" : done ? "un-seg-done" : ""}`}>
+    <div className="un-seg-name">{name}</div>
+    <div className="un-seg-val">{value}</div>
   </div>
 );
 
-const Stat: FC<{ label: string; value: string }> = ({ label, value }) => (
+const Fact: FC<{ label: string; value: string }> = ({ label, value }) => (
   <div>
-    <dt>{label}</dt>
-    <dd className="font-mono text-neutral-700">{value}</dd>
+    <div className="un-label-dim" style={{ fontSize: 10 }}>
+      {label}
+    </div>
+    <div className="un-mono" style={{ color: "var(--un-fg-2)", marginTop: 3 }}>
+      {value}
+    </div>
   </div>
 );
 
-const Line: FC<{ tone: "ok" | "warn" | "muted"; text: string }> = ({ tone, text }) => {
-  const dot = tone === "ok" ? "bg-success-500" : tone === "warn" ? "bg-warning-500" : "bg-neutral-300";
-  const fg = tone === "warn" ? "text-neutral-700" : "text-neutral-600";
+const Line: FC<{ tone: "ok" | "wait"; text: string }> = ({ tone, text }) => (
+  <div className="un-row" style={{ gap: 10, flexWrap: "nowrap", alignItems: "flex-start" }}>
+    <span
+      style={{
+        marginTop: 5,
+        width: 10,
+        height: 10,
+        flex: "0 0 auto",
+        borderRadius: "50%",
+        border: `2.5px solid ${tone === "ok" ? "var(--un-green)" : "var(--un-pistachio)"}`,
+        background: tone === "ok" ? "var(--un-green)" : "transparent",
+        animation: tone === "wait" ? "un-breathe 1.8s ease-in-out infinite" : undefined,
+      }}
+    />
+    <span className="un-note">{text}</span>
+  </div>
+);
+
+/// The five round marks. Only COUNCIL is framed in red — somebody is definitely dying — and the
+/// design reserves the same treatment in pistachio for a public immunity round, which this build
+/// does not run.
+const RoundMark: FC<{ kind: RoundKind }> = ({ kind }) => {
+  const badge = ROUND_BADGE[kind];
   return (
-    <div className="flex items-start gap-2">
-      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dot} ${tone === "warn" ? "animate-pulse" : ""}`} />
-      <span className={fg}>{text}</span>
+    <div className={`un-badge ${kind === RoundKind.Council ? "un-badge-council" : ""}`}>
+      <div className="un-badge-mark">
+        <Mark kind={kind} />
+      </div>
+      <div className="un-badge-name">{badge.name}</div>
+      <div className="un-badge-rule">{badge.hint}</div>
     </div>
   );
 };
+
+const Mark: FC<{ kind: RoundKind }> = ({ kind }): ReactNode => {
+  const sq = (bg: string, size = 12) => (
+    <span style={{ width: size, height: size, background: bg, display: "block" }} />
+  );
+
+  switch (kind) {
+    case RoundKind.Tribal: // four tribes, one about to go dark
+      return (
+        <span style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+          {sq("var(--un-fg)")}
+          {sq("var(--un-fg)")}
+          {sq("var(--un-fg)")}
+          {sq("var(--un-dim)")}
+        </span>
+      );
+    case RoundKind.Council: // three, and the middle one goes
+      return (
+        <span style={{ display: "flex", gap: 3 }}>
+          <span style={{ width: 12, height: 12, border: "2px solid var(--un-condemned)" }} />
+          {sq("var(--un-condemned)")}
+          <span style={{ width: 12, height: 12, border: "2px solid var(--un-condemned)" }} />
+        </span>
+      );
+    case RoundKind.Individual: // no tribes left, just a person
+      return <span style={{ width: 20, height: 20, background: "var(--un-fg)", borderRadius: "50%" }} />;
+    case RoundKind.Jury: // the dead, in a row
+      return (
+        <span style={{ display: "flex", gap: 3 }}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <span key={i} style={{ width: 7, height: 7, background: "var(--un-sage)", borderRadius: "50%" }} />
+          ))}
+        </span>
+      );
+  }
+};
+
+function phaseCaption(phase: RoundPhase, owes: boolean, rush: boolean): string {
+  if (rush) return "Under 90s — you still owe";
+  if (owes) return "You still owe something";
+  switch (phase) {
+    case "campaign":
+      return "Until the ballot opens";
+    case "ballot":
+      return "Calm — you owe nothing";
+    case "tally":
+      return "Until the round can settle";
+    default:
+      return "Settled";
+  }
+}
 
 function derivePhase(round: Round, now: bigint): RoundPhase {
   if (round.settled) return "settled";
@@ -178,21 +250,8 @@ function nextBoundary(round: Round, phase: RoundPhase, tallyGrace: bigint): bigi
   }
 }
 
-function formatCountdown(seconds: bigint): string {
-  const total = Number(seconds);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
-  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
-  return `${s}s`;
-}
-
-function formatClock(unixSeconds: bigint): string {
-  if (unixSeconds === 0n) return "—";
-  return new Date(Number(unixSeconds) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
+/// Rounds advance on wall-clock time, not on transactions, so the countdown ticks locally rather
+/// than waiting for an event that will never arrive.
 function useNow(): bigint {
   const [now, setNow] = useState(() => BigInt(Math.floor(Date.now() / 1000)));
 
