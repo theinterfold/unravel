@@ -1,0 +1,8 @@
+{
+  "name": "unravel-plugin",
+  "private": true,
+  "description": "Vendored CRISP Aragon voting plugin. Separate Foundry root: Aragon OSx pins OpenZeppelin 4.9.6 while ../contracts uses 5.1.0.",
+  "dependencies": {
+    "@aragon/token-voting-plugin": "github:aragon/token-voting-plugin#v1.3"
+  }
+}

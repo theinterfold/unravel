@@ -6,3 +6,7 @@ contracts/broadcast/
 contracts/cache/
 contracts/out/
 node_modules/
+plugin/cache/
+plugin/lib/
+plugin/node_modules/
+plugin/out/
