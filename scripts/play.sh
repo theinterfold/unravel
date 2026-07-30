@@ -124,7 +124,9 @@ GAME_OUT="$(run_script "game deploy" "$ROOT/contracts" "script/DeployGame.s.sol:
   "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM MERGE_AT=$MERGE_AT FINALISTS=2 MAX_MISSED_CHECKINS=0 ENTRY_FEE=0")"
 GAME="$(pick "$GAME_OUT" GAME)"
 [ -n "$GAME" ] || { echo "$GAME_OUT" | tail -20; fail "could not parse the game address"; }
-echo "  GAME $GAME"
+# Bounds the frontend's campaign-event scan; anything at or before deployment is irrelevant.
+DEPLOY_BLOCK="$(cast block-number --rpc-url "$RPC" 2>/dev/null || echo 0)"
+echo "  GAME $GAME (block $DEPLOY_BLOCK)"
 
 step "pointing the plugin's census at the game"
 # Without this the coordination server asks the plugin (the E3 requester) for the electorate, gets

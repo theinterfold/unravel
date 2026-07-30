@@ -26,6 +26,8 @@
     "test": "bun run contracts:test && bun run plugin:test && bun run check:encoding",
     "lint": "bun run contracts:fmt:check && bun run app:typecheck",
     "plugin:build": "forge build --root plugin",
-    "plugin:test": "forge test --root plugin"
+    "plugin:test": "forge test --root plugin",
+    "deploy:sepolia": "./scripts/deploy-sepolia.sh",
+    "deploy:sepolia:dry": "./scripts/deploy-sepolia.sh --dry-run"
   }
 }

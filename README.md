@@ -108,6 +108,8 @@ processes that transact on their own.
 | `bun run plugin:build` / `plugin:test` | vendored Aragon plugin |
 | `bun run test` | contracts + plugin + encoding |
 | `bun run lint` | `forge fmt --check` + app typecheck |
+| `bun run deploy:sepolia:dry` | simulate a Sepolia deploy, broadcast nothing |
+| `bun run deploy:sepolia` | deploy to Sepolia (needs `PRIVATE_KEY`) |
 
 `play.sh` records every deployed address in `.devnet.env`, and the other scripts read it. That file
 is the single source of truth: `devnet:round` and `devnet:status` never re-derive or redeploy, which
@@ -124,6 +126,22 @@ Two devnets cannot safely share a machine: CRISP's own `dev.sh` tears down with 
 which matches by process name and kills every chain running. Run beside an existing devnet with
 `ANVIL_PORT=8546 ./scripts/play.sh` — every other port shifts with it — but note that only
 protects other stacks from this one, not the reverse.
+
+## Sepolia
+
+```bash
+bun run deploy:sepolia:dry            # simulate first
+PRIVATE_KEY=0x... bun run deploy:sepolia
+```
+
+Interfold, CRISP program, fee token and the hosted coordination server default to the
+the-interfold-governance Sepolia values, so only a key and (optionally) an RPC are needed. Addresses
+land in `.sepolia.env`.
+
+Two differences from local worth planning for. The pot must be funded with **real** testnet fee
+tokens — there is no mint, and a game with an empty pot cannot open a round. And the
+`campaignDuration` floor is not the ~290s measured locally: a shared public committee is slower and
+less predictable, so the defaults here are hours rather than minutes.
 
 ### Two things worth knowing before reading the code
 
