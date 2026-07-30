@@ -16,17 +16,20 @@ import {ICrispVotingPlugin} from "../src/interfaces/ICrispVotingPlugin.sol";
 ///      and are eliminated, and `RosterToken` gates both on `onlyOwner`. Skipping it produces a game
 ///      that cannot start a round.
 ///
-///      The CRISP voting plugin must already be deployed (see ../plugin) and its `censusProvider`
-///      pointed at this game — the coordination server resolves the electorate by asking the E3's
-///      requester, which is the plugin, so without that link it falls back to reconstructing
-///      eligibility from token transfer logs and the roster is ignored.
+///      Deployment order is tokens → plugin → game, because the plugin needs the LIFE token address
+///      at initialization while the game needs the plugin's. Afterwards the plugin's `censusProvider`
+///      must be pointed at this game: the coordination server resolves the electorate by asking the
+///      E3's requester, which is the plugin, so without that link it falls back to reconstructing
+///      eligibility from token transfer logs and the roster is ignored entirely.
 contract DeployGame is Script {
     function run() external {
         vm.startBroadcast();
         address deployer = msg.sender;
 
-        RosterToken life = new RosterToken("Unravel Life", "LIFE", deployer);
-        RosterToken jury = new RosterToken("Unravel Jury", "JURY", deployer);
+        // Adopted rather than created: the plugin needed the LIFE address before this ran (see
+        // DeployTokens). The deployer must still own them here so ownership can be handed over.
+        RosterToken life = RosterToken(vm.envAddress("LIFE_TOKEN_ADDRESS"));
+        RosterToken jury = RosterToken(vm.envAddress("JURY_TOKEN_ADDRESS"));
 
         SurvivalGame game = new SurvivalGame(
             SurvivalGame.InitParams({

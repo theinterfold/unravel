@@ -61,18 +61,6 @@ for bin in cast forge; do
   command -v "$bin" >/dev/null 2>&1 || fail "$bin not found — install Foundry"
 done
 
-# The game creates its proposals on the CRISP Aragon plugin, so the plugin has to exist first and
-# have its censusProvider pointed back at the game once deployed. Without that link the coordination
-# server falls back to reconstructing eligibility from token transfer logs and the roster is ignored.
-CRISP_VOTING_PLUGIN_ADDRESS="${CRISP_VOTING_PLUGIN_ADDRESS:-}"
-if [ -z "$CRISP_VOTING_PLUGIN_ADDRESS" ]; then
-  fail "CRISP_VOTING_PLUGIN_ADDRESS is not set.
-       The game votes through the Aragon plugin in ./plugin, which must be deployed against a DAO
-       first. Deploy it, then:
-         CRISP_VOTING_PLUGIN_ADDRESS=<address> bun run play
-       Afterwards point the plugin at the game:
-         cast send <plugin> 'setCensusProvider(address)' <game>"
-fi
 
 # ─── 1. devnet ──────────────────────────────────────────────────────────────────────────────────
 
@@ -99,30 +87,56 @@ CRISP_PROGRAM="$(get_env E3_PROGRAM_ADDRESS)"
 
 # ─── 2. deploy ──────────────────────────────────────────────────────────────────────────────────
 
-step "deploying the game ($TEAM_COUNT teams of $MEMBERS_PER_TEAM, campaign=${CAMPAIGN_DURATION}s)"
-DEPLOY_OUT="$(
-  cd "$ROOT/contracts" &&
-  INTERFOLD_ADDRESS="$INTERFOLD_ADDRESS" \
-  CRISP_PROGRAM_ADDRESS="$CRISP_PROGRAM" \
-  CAMPAIGN_DURATION="$CAMPAIGN_DURATION" \
-  BALLOT_DURATION="$BALLOT_DURATION" \
-  TALLY_GRACE="$TALLY_GRACE" \
-  TEAM_COUNT="$TEAM_COUNT" MEMBERS_PER_TEAM="$MEMBERS_PER_TEAM" MERGE_AT="$MERGE_AT" \
-  FINALISTS=2 MAX_MISSED_CHECKINS=0 ENTRY_FEE=0 \
-  CRISP_VOTING_PLUGIN_ADDRESS="$CRISP_VOTING_PLUGIN_ADDRESS" \
-  FEE_TOKEN_ADDRESS="$FEE_TOKEN" \
-  forge script script/DeployGame.s.sol:DeployGame \
-    --rpc-url "$RPC" --private-key "$DEPLOYER_KEY" --broadcast 2>&1
-)" || { echo "$DEPLOY_OUT" | tail -20; fail "deploy failed"; }
+# Deployment order is forced by a circular dependency: the plugin needs the LIFE token address at
+# initialization (it reads voting power from it), and the game needs the plugin's address. So:
+# tokens -> DAO + plugin -> game -> point the plugin back at the game.
 
-pick() { echo "$DEPLOY_OUT" | grep -Eo "$1 0x[0-9a-fA-F]{40}" | tail -1 | awk '{print $2}'; }
-GAME="$(pick GAME)"; LIFE="$(pick LIFE)"; JURY="$(pick JURY)"
-[ -n "$GAME" ] || { echo "$DEPLOY_OUT" | tail -20; fail "could not parse the deployed game address"; }
-DEPLOY_BLOCK="$(cast block-number --rpc-url "$RPC" 2>/dev/null || echo 0)"
+pick() { echo "$1" | grep -Eo "$2 0x[0-9a-fA-F]{40}" | tail -1 | awk '{print $2}'; }
+run_script() {
+  local label="$1" root="$2" target="$3"
+  local out
+  if ! out="$(cd "$root" && eval "$4" forge script "$target" --rpc-url "$RPC" --private-key "$DEPLOYER_KEY" --broadcast 2>&1)"; then
+    echo "$out" | tail -20
+    fail "$label failed"
+  fi
+  echo "$out"
+}
 
-echo "  GAME $GAME"
+step "deploying the LIFE and JURY badges"
+TOKENS_OUT="$(run_script "token deploy" "$ROOT/contracts" "script/DeployTokens.s.sol:DeployTokens" "")"
+LIFE="$(pick "$TOKENS_OUT" LIFE)"; JURY="$(pick "$TOKENS_OUT" JURY)"
+[ -n "$LIFE" ] && [ -n "$JURY" ] || { echo "$TOKENS_OUT" | tail -10; fail "could not parse token addresses"; }
 echo "  LIFE $LIFE"
 echo "  JURY $JURY"
+
+step "deploying the DAO and the CRISP voting plugin"
+# Bypasses Aragon's DAOFactory/PluginRepoFactory, which only exist on public networks — see
+# plugin/script/DeployLocal.s.sol.
+PLUGIN_OUT="$(run_script "plugin deploy" "$ROOT/plugin" "script/DeployLocal.s.sol:DeployLocal" \
+  "INTERFOLD_ADDRESS=$INTERFOLD_ADDRESS CRISP_PROGRAM_ADDRESS=$CRISP_PROGRAM VOTING_TOKEN_ADDRESS=$LIFE COMPUTE_PROVIDER_PARAMS=$COMPUTE_PROVIDER_PARAMS")"
+DAO="$(pick "$PLUGIN_OUT" DAO)"; PLUGIN="$(pick "$PLUGIN_OUT" PLUGIN)"
+[ -n "$PLUGIN" ] || { echo "$PLUGIN_OUT" | tail -20; fail "could not parse plugin address"; }
+echo "  DAO    $DAO"
+echo "  PLUGIN $PLUGIN"
+
+step "deploying the game ($TEAM_COUNT teams of $MEMBERS_PER_TEAM, campaign=${CAMPAIGN_DURATION}s)"
+GAME_OUT="$(run_script "game deploy" "$ROOT/contracts" "script/DeployGame.s.sol:DeployGame" \
+  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM MERGE_AT=$MERGE_AT FINALISTS=2 MAX_MISSED_CHECKINS=0 ENTRY_FEE=0")"
+GAME="$(pick "$GAME_OUT" GAME)"
+[ -n "$GAME" ] || { echo "$GAME_OUT" | tail -20; fail "could not parse the game address"; }
+echo "  GAME $GAME"
+
+step "pointing the plugin's census at the game"
+# Without this the coordination server asks the plugin (the E3 requester) for the electorate, gets
+# nothing, and silently falls back to token-log discovery — the roster would be ignored entirely.
+cast send "$PLUGIN" "setCensusProvider(address)" "$GAME" \
+  --rpc-url "$RPC" --private-key "$DEPLOYER_KEY" --gas-limit 500000 >/dev/null ||
+  fail "setCensusProvider failed"
+PROVIDER="$(cast call "$PLUGIN" "censusProvider()(address)" --rpc-url "$RPC" 2>/dev/null)"
+# Compared via tr rather than ${VAR,,}: macOS ships bash 3.2, which lacks that expansion.
+lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+[ "$(lower "$PROVIDER")" = "$(lower "$GAME")" ] || fail "censusProvider is $PROVIDER, expected $GAME"
+echo "  censusProvider = $PROVIDER"
 
 # ─── 3. fund ────────────────────────────────────────────────────────────────────────────────────
 
@@ -154,6 +168,8 @@ NEXT_PUBLIC_GAME_DEPLOYMENT_BLOCK=$DEPLOY_BLOCK
 NEXT_PUBLIC_INTERFOLD_ADDRESS=$INTERFOLD_ADDRESS
 NEXT_PUBLIC_INTERFOLD_FEE_TOKEN_ADDRESS=$FEE_TOKEN
 NEXT_PUBLIC_CRISP_PROGRAM_ADDRESS=$CRISP_PROGRAM
+NEXT_PUBLIC_CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN
+NEXT_PUBLIC_DAO_ADDRESS=$DAO
 NEXT_PUBLIC_CRISP_SERVER_URL=$CRISP_SERVER
 
 NEXT_PUBLIC_CHAIN_NAME=localhost
@@ -169,6 +185,8 @@ cat <<EOF
 $(printf '\033[1m')Ready.$(printf '\033[0m')
 
   Game        $GAME
+  Plugin      $PLUGIN
+  DAO         $DAO
   Chain       $RPC  (chain id 31337)
   CRISP       $CRISP_SERVER
   Devnet logs /tmp/unravel-devnet/

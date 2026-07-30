@@ -74,19 +74,16 @@ serves the frontend:
 
 ```bash
 bun run setup   # first time only — installs app + harness deps
-CRISP_VOTING_PLUGIN_ADDRESS=<address> bun run play
+bun run play
 ```
 
-The plugin has to be deployed first (it needs a DAO), and its `censusProvider` pointed back at the
-game afterwards:
+That deploys everything in the order the dependencies force: LIFE/JURY badges → DAO + CRISP voting
+plugin → game → point the plugin's `censusProvider` back at the game. The plugin needs the LIFE
+address at initialization, and the game needs the plugin's, so the order is not optional.
 
-```bash
-cast send <plugin> 'setCensusProvider(address)' <game>
-```
-
-Without that link the coordination server asks the plugin — the E3's requester — for the electorate,
-gets nothing, and falls back to reconstructing eligibility from token transfer logs, ignoring the
-roster entirely.
+The DAO is deployed directly rather than through Aragon's `DAOFactory`/`PluginRepoFactory`: those are
+framework contracts that only exist on public networks, and their job is publishing a versioned
+plugin to a repo. Local testing needs a working plugin, not a published one.
 
 The chain runs on **8545**, which is what MetaMask's built-in "Localhost 8545" network already
 points at — so there is usually nothing to configure. Import anvil accounts **6–9**; accounts 0–5
