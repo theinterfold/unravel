@@ -122,7 +122,20 @@ done
 
 DEPLOYER="$(cast wallet address --private-key "$PRIVATE_KEY")"
 CHAIN_ID="$(cast chain-id --rpc-url "$RPC" 2>/dev/null || echo '')"
-[ "$CHAIN_ID" = "11155111" ] || fail "chain id is '$CHAIN_ID', expected 11155111 (Sepolia) at $RPC"
+if [ "$CHAIN_ID" != "11155111" ]; then
+  # An empty chain id means the endpoint did not answer at all, and `cast` discards the reason. Ask
+  # again with curl so the RPC's own words reach the user: a rate limit, an expired key and a typo in
+  # the URL are three very different problems that otherwise look identical here.
+  REASON="$(curl -s --max-time 10 -X POST -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' "$RPC" 2>/dev/null |
+    sed -n 's/.*"message":"\([^"]*\)".*/\1/p')"
+  fail "no usable Sepolia RPC at $RPC
+       ${REASON:+the endpoint said: $REASON
+       }chain id came back '${CHAIN_ID:-<no response>}', expected 11155111.
+       Override for one run:
+         RPC_URL=https://ethereum-sepolia-rpc.publicnode.com bun run deploy:sepolia
+       or change RPC_URL in $ENV_FILE."
+fi
 
 BALANCE="$(cast balance "$DEPLOYER" --rpc-url "$RPC" 2>/dev/null || echo 0)"
 step "deployer $DEPLOYER  ($(cast to-unit "$BALANCE" ether 2>/dev/null || echo '?') ETH)"
