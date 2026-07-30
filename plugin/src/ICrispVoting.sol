@@ -27,6 +27,13 @@ interface ICrispVoting {
     /// @notice Thrown when the number of options is less than 2.
     /// @param numOptions The number of options provided.
     error InvalidOptionCount(uint256 numOptions);
+    /// @notice Thrown when Interfold rejects the E3 quote in both supported parameter shapes.
+    /// @dev Replaces the empty revert that a shape mismatch or invalid E3 parameters would otherwise
+    /// produce. Both shapes having been tried, the cause is the parameters themselves — most often an
+    /// input window that leaves no room for committee sortition, or an unregistered BFV param set.
+    error InterfoldQuoteRejected();
+    /// @notice Thrown when the E3 request fails without a revert reason to bubble up.
+    error InterfoldRequestFailed();
     /// @notice Thrown when a proposal cannot be executed because its outcome is not decisive:
     /// either quorum was not reached, or the tally has no unique winning option.
     /// @param proposalId The ID of the proposal.

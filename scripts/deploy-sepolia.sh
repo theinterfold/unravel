@@ -17,7 +17,7 @@
 # PRIVATE_KEY and any overrides can live in a gitignored .env at the repo root.
 #
 #   ./scripts/deploy-sepolia.sh              # deploy everything
-#   ./scripts/deploy-sepolia.sh --dry-run    # simulate, broadcast nothing
+#   ./scripts/deploy-sepolia.sh --dry-run    # rehearse on a local fork of Sepolia
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -81,10 +81,22 @@ TALLY_GRACE="${TALLY_GRACE:-600}"             # 10m
 MAX_MISSED_CHECKINS="${MAX_MISSED_CHECKINS:-2}"
 ENTRY_FEE="${ENTRY_FEE:-0}"
 
+# A dry run forks Sepolia into a local anvil and deploys against that for real, rather than passing
+# `forge script` without `--broadcast`.
+#
+# Script-by-script simulation cannot work here, and fails in a way that looks like a contract bug:
+# each of the four steps feeds addresses to the next, but an unbroadcast `forge script` persists
+# nothing, so every step re-simulates from the same deployer nonce and predicts the *same* addresses.
+# Step 3 then calls `transferOwnership` on a LIFE token that does not exist, and reverts.
+#
+# Forking keeps state between steps, so the rehearsal exercises the real thing: the real Interfold and
+# CRISP program bytecode, real fee-token decimals, the faucet, and — the point of rehearsing — whether
+# the plugin's Interfold interface actually matches what is deployed.
+DRY_RUN=0
 BROADCAST="--broadcast"
 for arg in "$@"; do
   case "$arg" in
-    --dry-run) BROADCAST="" ;;
+    --dry-run) DRY_RUN=1 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
@@ -125,14 +137,45 @@ echo "  interfold    $INTERFOLD_ADDRESS"
 echo "  crispProgram $CRISP_PROGRAM"
 echo "  feeToken     $FEE_TOKEN"
 echo "  crispServer  $CRISP_SERVER"
-[ -n "$BROADCAST" ] || step "DRY RUN — simulating, nothing will be broadcast"
+
+# ─── Fork, for a dry run ────────────────────────────────────────────────────────────────────────
+#
+# Deliberately not port 8545: a local devnet may well be running there, and this must not disturb it.
+# Teardown kills by port for the same reason — `pkill -f anvil` matches on process name and would take
+# down every chain on the machine, including other people's.
+if [ "$DRY_RUN" = "1" ]; then
+  command -v anvil >/dev/null 2>&1 || fail "anvil not found — install Foundry"
+  FORK_PORT="${FORK_PORT:-8555}"
+  lsof -nP -i:"$FORK_PORT" >/dev/null 2>&1 &&
+    fail "port $FORK_PORT is in use — set FORK_PORT to something free"
+
+  step "DRY RUN — forking Sepolia into a local anvil on port $FORK_PORT"
+  # Enough funded accounts to fill the lobby in the rehearsal at the end.
+  FORK_ACCOUNTS=$((TEAM_COUNT * MEMBERS_PER_TEAM))
+  [ "$FORK_ACCOUNTS" -ge 10 ] || FORK_ACCOUNTS=10
+  anvil --fork-url "$RPC" --port "$FORK_PORT" --accounts "$FORK_ACCOUNTS" --silent >/dev/null 2>&1 &
+  FORK_PID=$!
+  # Kill only this anvil, by pid, and only if it is still ours to kill.
+  trap 'kill "$FORK_PID" 2>/dev/null || true' EXIT
+
+  RPC="http://127.0.0.1:$FORK_PORT"
+  for _ in $(seq 1 30); do
+    [ "$(cast chain-id --rpc-url "$RPC" 2>/dev/null || echo '')" = "11155111" ] && break
+    sleep 1
+  done
+  [ "$(cast chain-id --rpc-url "$RPC" 2>/dev/null || echo '')" = "11155111" ] ||
+    fail "fork did not come up at $RPC"
+  echo "  forked at block $(cast block-number --rpc-url "$RPC")"
+fi
 
 pick() { echo "$1" | grep -Eo "$2 0x[0-9a-fA-F]{40}" | tail -1 | awk '{print $2}'; }
 run_script() {
   local label="$1" root="$2" target="$3" env_prefix="$4" out
   if ! out="$(cd "$root" && eval "$env_prefix" forge script "$target" \
       --rpc-url "$RPC" --private-key "$PRIVATE_KEY" $BROADCAST 2>&1)"; then
-    echo "$out" | tail -25
+    # stderr, not stdout: stdout is captured by the caller's command substitution, so a plain echo
+    # here would swallow the only diagnostic the failure produces.
+    echo "$out" | tail -25 >&2
     fail "$label failed"
   fi
   echo "$out"
@@ -172,11 +215,6 @@ GAME="$(pick "$GAME_OUT" GAME)"
 DEPLOY_BLOCK="$(cast block-number --rpc-url "$RPC" 2>/dev/null || echo 0)"
 echo "  GAME $GAME (block $DEPLOY_BLOCK)"
 
-if [ -z "$BROADCAST" ]; then
-  step "dry run complete — nothing was deployed"
-  exit 0
-fi
-
 # ─── 4. fund the pot ────────────────────────────────────────────────────────────────────────────
 #
 # Every round's E3 fee is paid from the pot, so a game with an empty pot cannot open a round. The
@@ -188,7 +226,7 @@ if cast send "$FAUCET" "faucet()" --rpc-url "$RPC" --private-key "$PRIVATE_KEY" 
   echo "  claimed"
 else
   # Reverts once the deployer already holds enough, which is a success for our purposes.
-  echo "  faucet declined (already funded, or dry — continuing)"
+  echo "  faucet declined (deployer already holds enough — continuing)"
 fi
 
 FEE_BALANCE="$(cast call "$FEE_TOKEN" "balanceOf(address)(uint256)" "$DEPLOYER" --rpc-url "$RPC" 2>/dev/null | awk '{print $1}')"
@@ -224,6 +262,57 @@ lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 PROVIDER="$(cast call "$PLUGIN" "censusProvider()(address)" --rpc-url "$RPC" 2>/dev/null)"
 [ "$(lower "$PROVIDER")" = "$(lower "$GAME")" ] || fail "censusProvider is $PROVIDER, expected $GAME"
 echo "  censusProvider = $PROVIDER"
+
+# ─── 6. rehearse a round (dry run only) ─────────────────────────────────────────────────────────
+#
+# The check worth having. `startGame` opens the first round, which routes through the plugin into the
+# real Interfold `request` — so this is where an ABI mismatch surfaces, and it surfaces as a revert
+# with empty data that explains nothing. Finding that on a fork costs nothing; finding it after a live
+# deploy means redeploying.
+if [ "$DRY_RUN" = "1" ]; then
+  NEED=$((TEAM_COUNT * MEMBERS_PER_TEAM))
+  step "rehearsing: filling the lobby with $NEED players and opening a round"
+
+  MNEMONIC="test test test test test test test test test test test junk"
+  i=0
+  while [ "$i" -lt "$NEED" ]; do
+    KEY="$(cast wallet private-key --mnemonic "$MNEMONIC" --mnemonic-index "$i" 2>/dev/null)"
+    TEAM=$(((i % TEAM_COUNT) + 1))
+    # A fixed gas limit: estimation races the ERC20Votes checkpoint write, whose cost is
+    # state-dependent, and an underestimate surfaces as an opaque out-of-gas.
+    cast send "$GAME" "join(uint8)" "$TEAM" --gas-limit 400000 \
+      --rpc-url "$RPC" --private-key "$KEY" >/dev/null 2>&1 || fail "join failed for player $i"
+    i=$((i + 1))
+  done
+  echo "  joined $(cast call "$GAME" 'aliveCount()(uint256)' --rpc-url "$RPC" | awk '{print $1}')"
+
+  if ! OUT="$(cast send "$GAME" "startGame()" --gas-limit 3000000 \
+      --rpc-url "$RPC" --private-key "$PRIVATE_KEY" 2>&1)"; then
+    echo "$OUT" | tail -20 >&2
+    fail "startGame reverted — the round could not be opened against the real Interfold.
+       An empty revert here almost always means the plugin's IInterfold does not match the
+       deployment at $INTERFOLD_ADDRESS (a single extra struct field changes the selector)."
+  fi
+  # `cast send` exits 0 on a reverted transaction, so the receipt status has to be read explicitly.
+  echo "$OUT" | grep -q "status  *1" || { echo "$OUT" | tail -20 >&2; fail "startGame transaction reverted"; }
+
+  # Nine fields, and the order matters: `e3Id` is third, after `kind` and `proposalId`. Decoding a
+  # shorter signature and taking the first line silently reads the round *kind* instead.
+  ROUND_SIG='getRound(uint256)(uint8,uint256,uint256,uint64,uint64,uint64,bool,address,uint8)'
+  E3="$(cast call "$GAME" "$ROUND_SIG" 0 --rpc-url "$RPC" 2>/dev/null |
+    sed -n '3p' | sed 's/ \[.*\]//')"
+  echo "  round 0 opened, e3Id $E3 — the Interfold interface matches"
+  # An e3Id is only meaningful if Interfold agrees it exists; a misread offset would print a
+  # plausible-looking number that belongs to no E3.
+  cast call "$INTERFOLD_ADDRESS" "getE3(uint256)" "$E3" --rpc-url "$RPC" >/dev/null 2>&1 ||
+    fail "the game recorded e3Id $E3 but Interfold has no such E3 — the request return was misread"
+  echo "  Interfold confirms E3 $E3 exists"
+
+  step "dry run complete — nothing was deployed to Sepolia"
+  echo "  Everything above happened on the fork and is now discarded."
+  echo "  Re-run without --dry-run to deploy for real."
+  exit 0
+fi
 
 # ─── Record ─────────────────────────────────────────────────────────────────────────────────────
 

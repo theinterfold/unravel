@@ -210,9 +210,11 @@ interface IInterfold {
     ///      0xf3ceba3a — and every call then reverts with empty data rather than a named error,
     ///      which is close to undiagnosable from the revert alone.
     ///
-    ///      Upstream carries a trailing `proofAggregationEnabled` bool that the Interfold built
-    ///      from the monorepo does not have; it is dropped here. If you retarget this at the
-    ///      deployment upstream assumes, restore it and re-check the selector.
+    ///      Two shapes are live and both are supported, because the two targets disagree: an
+    ///      Interfold built from the current monorepo has these six fields, while the Sepolia
+    ///      deployment at 0x13fA9Ecff929b4C86a2FCA4AEE91572EDee34486 still carries a trailing
+    ///      `proofAggregationEnabled` bool. See {E3RequestParamsWithAggregation}. `CrispVoting`
+    ///      picks between them by probing rather than by configuration.
     struct E3RequestParams {
         CommitteeSize committeeSize;
         uint256[2] inputWindow;
@@ -220,6 +222,22 @@ interface IInterfold {
         uint8 paramSet;
         bytes computeProviderParams;
         bytes customParams;
+    }
+
+    /// @notice {E3RequestParams} as older Interfold deployments declare it: identical, plus a
+    ///         trailing `proofAggregationEnabled`.
+    /// @dev Kept as a separate struct rather than a version flag so the compiler does the encoding
+    ///      and the two selectors stay derived from real type declarations. Field order matters and
+    ///      is verified against the deployment: `getE3Quote` is 0xb502f3b2 for six fields and
+    ///      0x9e57b934 for seven.
+    struct E3RequestParamsWithAggregation {
+        CommitteeSize committeeSize;
+        uint256[2] inputWindow;
+        IE3Program e3Program;
+        uint8 paramSet;
+        bytes computeProviderParams;
+        bytes customParams;
+        bool proofAggregationEnabled;
     }
 
     ////////////////////////////////////////////////////////////
@@ -330,6 +348,15 @@ interface IInterfold {
     /// @param e3Params the struct representing the E3 request parameters
     /// @return fee the fee of the E3
     function getE3Quote(E3RequestParams calldata e3Params) external view returns (uint256 fee);
+
+    /// @notice {getE3Quote} as older deployments declare it.
+    /// @dev Overload, so the name — and therefore the selector — stays correct for each shape.
+    function getE3Quote(E3RequestParamsWithAggregation calldata e3Params) external view returns (uint256 fee);
+
+    /// @notice {request} as older deployments declare it.
+    function request(E3RequestParamsWithAggregation calldata requestParams)
+        external
+        returns (uint256 e3Id, E3 memory e3);
 
     /// @notice Returns the decryption verifier for a given encryption scheme.
     /// @param encryptionSchemeId The unique identifier for the encryption scheme.

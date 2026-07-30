@@ -108,7 +108,7 @@ processes that transact on their own.
 | `bun run plugin:build` / `plugin:test` | vendored Aragon plugin |
 | `bun run test` | contracts + plugin + encoding |
 | `bun run lint` | `forge fmt --check` + app typecheck |
-| `bun run deploy:sepolia:dry` | simulate a Sepolia deploy, broadcast nothing |
+| `bun run deploy:sepolia:dry` | rehearse the Sepolia deploy on a local fork, broadcast nothing |
 | `bun run deploy:sepolia` | deploy to Sepolia (needs `PRIVATE_KEY`) |
 
 `play.sh` records every deployed address in `.devnet.env`, and the other scripts read it. That file
@@ -131,12 +131,21 @@ protects other stacks from this one, not the reverse.
 
 ```bash
 cp .env.example .env                  # fill in PRIVATE_KEY (gitignored)
-bun run deploy:sepolia:dry            # simulate first
+bun run deploy:sepolia:dry            # rehearse on a fork first
 bun run deploy:sepolia
 ```
 
 Anything already in your environment beats `.env`, so `RPC_URL=... bun run deploy:sepolia` still
 overrides it.
+
+The dry run forks Sepolia into a local anvil (port 8555, override with `FORK_PORT`) and deploys
+against that for real, rather than running each `forge script` without `--broadcast`. Unbroadcast
+simulation cannot work here: the four steps feed addresses to each other, but nothing persists
+between them, so every step re-simulates from the same deployer nonce and predicts the *same*
+addresses — the game then calls `transferOwnership` on a LIFE token that does not exist. Forking
+keeps state, so the rehearsal exercises the real Interfold bytecode, real fee-token decimals, the
+faucet, and finally fills a lobby and opens a round. That last step is the point: it is where an
+Interfold ABI mismatch surfaces, and it surfaces as an empty revert that explains nothing.
 
 Interfold, CRISP program, fee token and the hosted coordination server default to the
 the-interfold-governance Sepolia values, so only a key and (optionally) an RPC are needed. Addresses
@@ -223,3 +232,17 @@ That is acceptable for a game, but it is not a trustless property and should not
 
 LGPL-3.0-only. Interfold interface files under `contracts/src/interfaces/` retain their upstream
 license headers.
+
+### Interfold ships two `E3RequestParams` shapes
+
+The Interfold built from the monorepo takes six fields. The Sepolia deployment at
+`0x13fA9Ecff929b4C86a2FCA4AEE91572EDee34486` is older and takes seven, with a trailing
+`proofAggregationEnabled`. The whole struct is one selector, so targeting the wrong one calls no
+function at all and reverts with empty data — no named error, nothing to point at the cause.
+
+`CrispVoting` therefore quotes with the six-field shape and retries with the seven-field one, using
+whichever answered for the request itself. Probed rather than configured on purpose: a version flag
+set at deploy time is one more thing to get wrong, and getting it wrong reproduces precisely the
+undiagnosable revert the probe exists to prevent. `getE3Quote` is `view`, so probing cannot touch
+state, and `request` is called low-level because the returned `E3` struct differs between the two
+versions too — only `e3Id`, its first return word in both, is read.

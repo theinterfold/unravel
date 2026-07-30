@@ -209,10 +209,14 @@ interface IInterfold {
     ///      selector, so a single extra field silently changes `request` from 0x2215c91d to
     ///      0xf3ceba3a and every call reverts with empty data rather than a named error.
     ///
-    ///      This shape (six fields) matches the Interfold built from the monorepo. The copy
-    ///      vendored in `the-interfold-governance` carries a trailing `proofAggregationEnabled`
-    ///      bool and does NOT work against it; if you retarget this game at the deployment that
-    ///      app uses, re-vendor the interface from there and re-check the selector.
+    ///      This shape (six fields) matches the Interfold built from the monorepo. The Sepolia
+    ///      deployment at 0x13fA9Ecff929b4C86a2FCA4AEE91572EDee34486 is older and carries a trailing
+    ///      `proofAggregationEnabled` bool, so this struct does NOT work against it — verified live.
+    ///
+    ///      Nothing in this Foundry root calls `request` or `getE3Quote`: the game routes every E3
+    ///      through the plugin, and only the `CommitteeSize` enum from this file is used. The plugin's
+    ///      own copy is the one that matters, and it supports both shapes by probing. Should the game
+    ///      ever call Interfold directly, do the same there rather than committing to one shape.
     struct E3RequestParams {
         CommitteeSize committeeSize;
         uint256[2] inputWindow;

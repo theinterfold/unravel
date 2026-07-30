@@ -215,15 +215,8 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
                 paramSet: paramSet
             });
 
-            // calculate the E3 fee
-            uint256 fee = interfold.getE3Quote(requestParams);
-            // take it from the caller
-            interfoldFeeToken.safeTransferFrom(_msgSender(), address(this), fee);
-            // approve the interfold contract to take the fee
-            interfoldFeeToken.forceApprove(address(interfold), fee);
-
-            // send the request to Interfold
-            (uint256 e3Id,) = interfold.request(requestParams);
+            // quote the fee, collect it from the caller, and open the E3
+            uint256 e3Id = _openE3(requestParams);
 
             /// @notice Store the data
             proposal.tally.counts = new uint256[](numOptions);
@@ -590,6 +583,108 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
 
         // An all-zero tally has no winner: nobody voted, so there is nothing to enact.
         unique = highest != 0 && tied == 1;
+    }
+
+    /// @notice Quotes the E3 fee, collects it from the proposer, and opens the E3.
+    /// @dev One function rather than three inline steps in `createProposal` because that block is at
+    ///      the stack limit — the quote, the shape flag and the fee are kept out of its scope.
+    /// @param _params The request parameters in the current six-field shape.
+    /// @return e3Id The id of the requested E3.
+    function _openE3(IInterfold.E3RequestParams memory _params) private returns (uint256 e3Id) {
+        (uint256 fee, bool useAggregationShape) = _quote(_params);
+
+        interfoldFeeToken.safeTransferFrom(_msgSender(), address(this), fee);
+        interfoldFeeToken.forceApprove(address(interfold), fee);
+
+        // The shape that quoted successfully is the shape the request must use: the two calls read
+        // the same struct, so disagreeing here would revert with empty data.
+        e3Id = _request(_params, useAggregationShape);
+    }
+
+    /// @notice Quotes the E3 fee, discovering which `E3RequestParams` shape this Interfold speaks.
+    /// @dev Two shapes are live: six fields in the current monorepo, seven (with a trailing
+    ///      `proofAggregationEnabled`) in the Sepolia deployment. The whole struct is one selector,
+    ///      so calling the wrong one hits no function and reverts with *empty* data — no named error,
+    ///      nothing in the revert to point at the cause. It is worth spending one extra staticcall to
+    ///      never emit that failure.
+    ///
+    ///      Probed rather than configured deliberately. A version flag set at deployment is one more
+    ///      thing to get wrong, and getting it wrong reproduces exactly the undiagnosable revert this
+    ///      exists to avoid. `getE3Quote` is `view`, so probing cannot touch state.
+    /// @param _params The request parameters in the current six-field shape.
+    /// @return fee The quoted fee.
+    /// @return withAggregation True if this deployment wants the seven-field shape, which
+    ///         {_request} must then use — the two calls have to agree.
+    function _quote(IInterfold.E3RequestParams memory _params)
+        private
+        view
+        returns (uint256 fee, bool withAggregation)
+    {
+        try interfold.getE3Quote(_params) returns (uint256 quoted) {
+            return (quoted, false);
+        } catch {
+            // Either this deployment is the older shape, or the parameters are genuinely invalid.
+            // The retry distinguishes them: a shape mismatch succeeds here, bad parameters fail again.
+            try interfold.getE3Quote(_withAggregation(_params)) returns (uint256 quoted) {
+                return (quoted, true);
+            } catch {
+                revert InterfoldQuoteRejected();
+            }
+        }
+    }
+
+    /// @notice Submits the E3 request in whichever shape {_quote} established.
+    /// @dev Low-level rather than a typed call because `request` returns `(uint256, E3 memory)` and the
+    ///      `E3` struct also differs between the two versions — decoding it would revert on a mismatch
+    ///      even once the arguments are right. Only `e3Id` is needed, and it is the first word of the
+    ///      return data in both versions, so the rest is left undecoded.
+    /// @param _params The request parameters in the current six-field shape.
+    /// @param _useAggregationShape Whether to send the seven-field shape instead.
+    /// @return e3Id The id of the requested E3.
+    function _request(IInterfold.E3RequestParams memory _params, bool _useAggregationShape)
+        private
+        returns (uint256 e3Id)
+    {
+        bytes memory payload = _useAggregationShape
+            ? abi.encodeWithSignature(
+                "request((uint8,uint256[2],address,uint8,bytes,bytes,bool))", _withAggregation(_params)
+            )
+            : abi.encodeWithSignature("request((uint8,uint256[2],address,uint8,bytes,bytes))", _params);
+
+        (bool ok, bytes memory returned) = address(interfold).call(payload);
+        if (!ok) {
+            // Bubble the original revert when there is one; an empty revert has nothing to bubble.
+            if (returned.length == 0) revert InterfoldRequestFailed();
+            assembly {
+                revert(add(returned, 0x20), mload(returned))
+            }
+        }
+        if (returned.length < 32) revert InterfoldRequestFailed();
+        // First word of the head, which is `e3Id` in both versions.
+        assembly {
+            e3Id := mload(add(returned, 0x20))
+        }
+    }
+
+    /// @notice Widens the current parameter shape to the older one.
+    /// @dev `proofAggregationEnabled` is false: the field is absent in the shape this plugin is
+    ///      written against, so the only faithful widening is the one that changes no behaviour.
+    /// @param _params The request parameters in the current six-field shape.
+    /// @return The same parameters in the seven-field shape.
+    function _withAggregation(IInterfold.E3RequestParams memory _params)
+        private
+        pure
+        returns (IInterfold.E3RequestParamsWithAggregation memory)
+    {
+        return IInterfold.E3RequestParamsWithAggregation({
+            committeeSize: _params.committeeSize,
+            inputWindow: _params.inputWindow,
+            e3Program: _params.e3Program,
+            paramSet: _params.paramSet,
+            computeProviderParams: _params.computeProviderParams,
+            customParams: _params.customParams,
+            proofAggregationEnabled: false
+        });
     }
 
     /// @notice Current timepoint in the voting token's ERC-6372 clock units.

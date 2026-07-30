@@ -59,8 +59,11 @@ printf '  %-14s %s\n' "rounds" "$(call 'roundCount()(uint256)')"
 ROUNDS="$(call 'roundCount()(uint256)')"; ROUNDS="${ROUNDS%% *}"
 if [ -n "$ROUNDS" ] && [ "$ROUNDS" != "0" ]; then
   RID=$((ROUNDS - 1))
-  read -r E3 _OPENED OPENS CLOSES SETTLED OUTCOME <<<"$(
-    cast call "$GAME" 'getRound(uint256)(uint256,uint64,uint64,uint64,bool,address)' "$RID" \
+  # All nine fields, in declaration order. Decoding fewer does not error — it just shifts every
+  # value, so the phase clock silently compares timestamps against a round kind and a proposal id.
+  read -r _KIND _PROPOSAL E3 _OPENED OPENS CLOSES SETTLED OUTCOME _TARGET <<<"$(
+    cast call "$GAME" \
+      'getRound(uint256)(uint8,uint256,uint256,uint64,uint64,uint64,bool,address,uint8)' "$RID" \
       --rpc-url "$RPC" 2>/dev/null | sed 's/ \[.*\]//' | tr '\n' ' '
   )"
   NOW="$(date +%s)"
