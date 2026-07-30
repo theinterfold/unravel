@@ -8,8 +8,8 @@
 #
 # Two differences from local that matter:
 #
-#   * The pot must be funded with real testnet fee tokens. There is no mint here — get them from the
-#     Interfold faucet. Every round's E3 fee is paid from the pot, so an unfunded game cannot start.
+#   * The pot is funded with real testnet fee tokens, claimed from the Interfold faucet. Every
+#     round's E3 fee comes out of the pot, so an unfunded game cannot open a round at all.
 #   * `CAMPAIGN_DURATION` has a floor set by committee sortition and the DKG, and on a shared public
 #     committee that floor is not the ~290s measured on a local devnet. The default here is
 #     deliberately generous.
@@ -26,7 +26,11 @@ RPC="${RPC_URL:-https://ethereum-sepolia-rpc.publicnode.com}"
 INTERFOLD_ADDRESS="${INTERFOLD_ADDRESS:-0x13fA9Ecff929b4C86a2FCA4AEE91572EDee34486}"
 CRISP_PROGRAM="${CRISP_PROGRAM_ADDRESS:-0x12f7a216aEaB6620dC3488754970b66c63ECdD2C}"
 FEE_TOKEN="${FEE_TOKEN_ADDRESS:-0xb743cDE9fbC72Ba06654267d1970be72A4Ea1445}"
-CRISP_SERVER="${CRISP_SERVER_URL:-https://crisp-api.theinterfold.com}"
+CRISP_SERVER="${CRISP_SERVER_URL:-https://private-crisp.theinterfold.com}"
+# Testnet faucet. `faucet()` tops up FOLD and the fee token independently, and reverts with
+# "You have enough tokens" when neither is below its threshold — so a repeat call is harmless but
+# not silent.
+FAUCET="${FAUCET_ADDRESS:-0x47Ef2F9764623Fd6154F389BA5Ccc54874F6EeD3}"
 COMMITTEE_SIZE="${COMMITTEE_SIZE:-0}"
 PARAM_SET="${PARAM_SET:-0}"
 COMPUTE_PROVIDER_PARAMS="${COMPUTE_PROVIDER_PARAMS:-0x7b226e616d65223a225249534330222c22706172616c6c656c223a66616c73652c2262617463685f73697a65223a347d}"
@@ -136,7 +140,41 @@ if [ -z "$BROADCAST" ]; then
   exit 0
 fi
 
-# ─── 4. census link ─────────────────────────────────────────────────────────────────────────────
+# ─── 4. fund the pot ────────────────────────────────────────────────────────────────────────────
+#
+# Every round's E3 fee is paid from the pot, so a game with an empty pot cannot open a round. The
+# faucet dispenses the fee token; amounts and decimals are read off the contract rather than assumed
+# (the fee token is 6 decimals, FOLD is 18 — hardcoding either would be a silent factor-of-10^12 bug).
+
+step "claiming fee tokens from the faucet"
+if cast send "$FAUCET" "faucet()" --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null 2>&1; then
+  echo "  claimed"
+else
+  # Reverts once the deployer already holds enough, which is a success for our purposes.
+  echo "  faucet declined (already funded, or dry — continuing)"
+fi
+
+FEE_BALANCE="$(cast call "$FEE_TOKEN" "balanceOf(address)(uint256)" "$DEPLOYER" --rpc-url "$RPC" 2>/dev/null | awk '{print $1}')"
+FEE_BALANCE="${FEE_BALANCE:-0}"
+if [ "$FEE_BALANCE" = "0" ]; then
+  step "no fee tokens — the pot is unfunded and the game cannot open a round"
+  echo "  claim manually, then fund:"
+  echo "    cast send $FAUCET 'faucet()' --rpc-url $RPC --private-key \$PRIVATE_KEY"
+  echo "    cast send $FEE_TOKEN 'approve(address,uint256)' $GAME <amount> --rpc-url $RPC --private-key \$PRIVATE_KEY"
+  echo "    cast send $GAME 'fund(uint256)' <amount> --rpc-url $RPC --private-key \$PRIVATE_KEY"
+else
+  step "funding the pot with $FEE_BALANCE fee-token units"
+  cast send "$FEE_TOKEN" "approve(address,uint256)" "$GAME" "$FEE_BALANCE" \
+    --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null || fail "approve failed"
+  cast send "$GAME" "fund(uint256)" "$FEE_BALANCE" \
+    --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null || fail "fund failed"
+
+  POT="$(cast call "$GAME" "pot()(uint256)" --rpc-url "$RPC" 2>/dev/null)"
+  [ "${POT%% *}" != "0" ] || fail "pot is still zero after funding"
+  echo "  pot = $POT"
+fi
+
+# ─── 5. census link ─────────────────────────────────────────────────────────────────────────────
 #
 # The coordination server resolves the electorate by asking the E3's requester, which is the plugin.
 # Without this the roster is ignored and eligibility falls back to token-transfer-log discovery.
@@ -158,6 +196,7 @@ RPC_URL=$RPC
 CRISP_SERVER_URL=$CRISP_SERVER
 INTERFOLD_ADDRESS=$INTERFOLD_ADDRESS
 FEE_TOKEN=$FEE_TOKEN
+FAUCET=$FAUCET
 CRISP_PROGRAM=$CRISP_PROGRAM
 DAO=$DAO
 PLUGIN=$PLUGIN
@@ -186,15 +225,10 @@ $(printf '\033[1m')Deployed to Sepolia.$(printf '\033[0m')
 
   $(printf '\033[1m')Still to do:$(printf '\033[0m')
 
-  1. Fund the pot with real fee tokens — every round's E3 fee comes out of it, so the game
-     cannot open a round while it is empty:
-       cast send $FEE_TOKEN 'approve(address,uint256)' $GAME <amount> --rpc-url $RPC --private-key \$PRIVATE_KEY
-       cast send $GAME 'fund(uint256)' <amount> --rpc-url $RPC --private-key \$PRIVATE_KEY
-
-  2. Point the frontend at it — copy .sepolia.env values into app/.env with
+  1. Point the frontend at it — copy .sepolia.env values into app/.env with
      NEXT_PUBLIC_CHAIN_NAME=sepolia, then: bun run app:dev
 
-  3. Sanity-check the fee quote before inviting players. If the plugin's Interfold interface does
+  2. Sanity-check the fee quote before inviting players. If the plugin's Interfold interface does
      not match this deployment, createProposal reverts with empty data and nothing in the revert
      explains why.
 

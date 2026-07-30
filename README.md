@@ -138,10 +138,13 @@ Interfold, CRISP program, fee token and the hosted coordination server default t
 the-interfold-governance Sepolia values, so only a key and (optionally) an RPC are needed. Addresses
 land in `.sepolia.env`.
 
-Two differences from local worth planning for. The pot must be funded with **real** testnet fee
-tokens — there is no mint, and a game with an empty pot cannot open a round. And the
-`campaignDuration` floor is not the ~290s measured locally: a shared public committee is slower and
-less predictable, so the defaults here are hours rather than minutes.
+The script claims fee tokens from the Interfold faucet and funds the pot itself — every round's E3
+fee comes out of the pot, so a game with an empty pot cannot open a round at all. If the faucet
+declines (it reverts once you already hold enough), it prints the manual `approve`/`fund` calls.
+
+The one thing to plan for: the `campaignDuration` floor is **not** the ~290s measured locally. A
+shared public committee is slower and less predictable, so the defaults here are hours rather than
+minutes. A window that is too short leaves the ballot dead for its whole duration.
 
 ### Two things worth knowing before reading the code
 
