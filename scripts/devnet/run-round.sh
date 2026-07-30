@@ -15,7 +15,9 @@
 
 set -euo pipefail
 
-ROSTER="${1:-4}"
+TEAM_COUNT="${TEAM_COUNT:-2}"
+MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-2}"
+ROSTER=$((TEAM_COUNT * MEMBERS_PER_TEAM))
 RPC="${RPC_URL:-http://127.0.0.1:8545}"
 CRISP_SERVER="${CRISP_SERVER_URL:-http://127.0.0.1:4000}"
 
@@ -162,7 +164,7 @@ step "pot = $POT"
 # short and the failure only surfaces later as RosterIncomplete from startGame, which is a much
 # harder thing to read.
 
-step "joining $ROSTER players"
+step "joining $ROSTER players across $TEAM_COUNT teams"
 for ((i = 0; i < ROSTER; i++)); do
   KEY="${PLAYER_KEYS[$i]}"
   ADDR="$(cast wallet address --private-key "$KEY")"
@@ -172,23 +174,27 @@ for ((i = 0; i < ROSTER; i++)); do
     continue
   fi
 
-  KEY="$KEY" send "join $ADDR" "$GAME" "join()" ||
-    { sleep 2; KEY="$KEY" send "join $ADDR (retry)" "$GAME" "join()"; }
+  # Players are spread across teams in order, matching the contract's lobby rule.
+  TEAM=$(( i / MEMBERS_PER_TEAM + 1 ))
+  KEY="$KEY" send "join $ADDR (team $TEAM)" "$GAME" "join(uint8)" "$TEAM" ||
+    { sleep 2; KEY="$KEY" send "join $ADDR (retry)" "$GAME" "join(uint8)" "$TEAM"; }
 
   [ "$(cast call "$GAME" "isPlayer(address)(bool)" "$ADDR" --rpc-url "$RPC" 2>/dev/null)" = "true" ] ||
     fail "$ADDR did not join"
 done
 
 ALIVE="$(cast call "$GAME" "aliveCount()(uint256)" --rpc-url "$RPC" 2>/dev/null)"
-[ "${ALIVE%% *}" = "$ROSTER" ] || fail "roster is $ALIVE, expected $ROSTER"
+[ "${ALIVE%% *}" = "$ROSTER" ] || fail "roster is $ALIVE, expected $ROSTER ($TEAM_COUNT x $MEMBERS_PER_TEAM)"
 step "roster full: $ALIVE"
 
 step "starting the game (this requests the E3)"
 START_TS="$(date +%s)"
 send "startGame" "$GAME" "startGame()" || fail "startGame reverted"
 
-E3_ID="$(cast call "$GAME" "getRound(uint256)(uint256,uint64,uint64,uint64,bool,address)" 0 --rpc-url "$RPC" | head -1)"
-step "round 0 -> e3Id=$E3_ID"
+round_field() { cast call "$GAME" 'getRound(uint256)(uint8,uint256,uint256,uint64,uint64,uint64,bool,address,uint8)' "$1" --rpc-url "$RPC" 2>/dev/null | sed 's/ \[.*\]//' | sed -n "$(( $2 + 1 ))p"; }
+E3_ID="$(round_field 0 2)"
+KIND="$(round_field 0 0)"
+step "round 0 -> kind=$KIND (0=tribal) e3Id=$E3_ID"
 
 # ─── The census hook ────────────────────────────────────────────────────────────────────────────
 
@@ -243,9 +249,19 @@ cast call "$CRISP_PROGRAM" "decodeTally(uint256)(uint256[])" "$E3_ID" --rpc-url 
 step "settling"
 KEY="$SETTLE_KEY" send "settleRound" "$GAME" "settleRound()" || fail "settleRound reverted"
 
+# A tribal round condemns a team without eliminating anyone, so the elimination only happens in the
+# council round that follows. Reporting "done" here would claim a result the game has not reached.
+OUTCOME="$(round_field 0 7)"
+TARGET="$(round_field 0 8)"
+if [ "$KIND" = "0" ] && [ "$OUTCOME" = "0x0000000000000000000000000000000000000000" ] && [ "$TARGET" != "0" ]; then
+  step "team $TARGET condemned — a council round is required to eliminate anyone"
+  echo "  open it with: cast send $GAME 'openRound()' --rpc-url $RPC --private-key <key>"
+  echo "  only team $TARGET may vote in it; run this script's ballot step with their keys"
+fi
+
 step "result"
 echo "alive: $(cast call "$GAME" "aliveCount()(uint256)" --rpc-url "$RPC")"
 echo "jurors: $(cast call "$GAME" "jurors()(address[])" --rpc-url "$RPC")"
-cast call "$GAME" "getRound(uint256)(uint256,uint64,uint64,uint64,bool,address)" 0 --rpc-url "$RPC"
+cast call "$GAME" 'getRound(uint256)(uint8,uint256,uint256,uint64,uint64,uint64,bool,address,uint8)' 0 --rpc-url "$RPC"
 
 step "done — committee key took ${KEY_READY}s"

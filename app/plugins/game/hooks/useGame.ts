@@ -1,7 +1,7 @@
 import { useReadContracts, useReadContract } from "wagmi";
 import { PUB_GAME_ADDRESS } from "@/constants";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
-import { Stage, ZERO_ADDRESS } from "../utils/gameTypes";
+import { Stage, ZERO_ADDRESS, type RoundKind } from "../utils/gameTypes";
 import type { GameConfig, GameState, Round } from "../utils/gameTypes";
 import type { Address } from "viem";
 
@@ -49,16 +49,43 @@ export function useRound(roundId: number | undefined, pollMs = 10_000) {
       { ...gameContract, functionName: "getRound", args: [BigInt(roundId ?? 0)] },
       { ...gameContract, functionName: "candidatesOf", args: [BigInt(roundId ?? 0)] },
       { ...gameContract, functionName: "votersOf", args: [BigInt(roundId ?? 0)] },
+      { ...gameContract, functionName: "candidateTeamsOf", args: [BigInt(roundId ?? 0)] },
     ],
     query: { enabled, refetchInterval: pollMs },
   });
 
   const round: Round | undefined =
     enabled && data?.every((r) => r.status === "success")
-      ? toRound(roundId, data[0].result as readonly unknown[], data[1].result as Address[], data[2].result as Address[])
+      ? toRound(
+          roundId,
+          data[0].result as readonly unknown[],
+          data[1].result as Address[],
+          data[2].result as Address[],
+          data[3].result as readonly number[]
+        )
       : undefined;
 
   return { round, isLoading, error, refetch };
+}
+
+/// Team id per player, keyed by lowercased address.
+///
+/// Read per player rather than from a single call because the contract stores it as a mapping —
+/// there is no bulk accessor, and inventing one on-chain to save a few RPC calls is the wrong
+/// trade for a roster this size.
+export function useTeams(players: Address[], pollMs = 30_000) {
+  const { data } = useReadContracts({
+    contracts: players.map((p) => ({ ...gameContract, functionName: "teamOf" as const, args: [p] })),
+    query: { enabled: players.length > 0, refetchInterval: pollMs },
+  });
+
+  const teamOf: Record<string, number> = {};
+  players.forEach((p, i) => {
+    const entry = data?.[i];
+    teamOf[p.toLowerCase()] = entry?.status === "success" ? Number(entry.result) : 0;
+  });
+
+  return teamOf;
 }
 
 /// The index of the round currently in play, or undefined before the game starts.
@@ -78,23 +105,35 @@ function toConfig(raw: readonly unknown[]): GameConfig {
     campaignDuration: raw[0] as bigint,
     ballotDuration: raw[1] as bigint,
     tallyGrace: raw[2] as bigint,
-    rosterSize: Number(raw[3]),
-    finalists: Number(raw[4]),
-    maxMissedCheckIns: Number(raw[5]),
-    entryFee: raw[6] as bigint,
+    teamCount: Number(raw[3]),
+    membersPerTeam: Number(raw[4]),
+    mergeAt: Number(raw[5]),
+    finalists: Number(raw[6]),
+    maxMissedCheckIns: Number(raw[7]),
+    entryFee: raw[8] as bigint,
   };
 }
 
-function toRound(id: number, raw: readonly unknown[], candidates: Address[], voters: Address[]): Round {
+function toRound(
+  id: number,
+  raw: readonly unknown[],
+  candidates: Address[],
+  voters: Address[],
+  candidateTeams: readonly number[]
+): Round {
   return {
     id,
-    e3Id: raw[0] as bigint,
-    openedAt: raw[1] as bigint,
-    ballotOpensAt: raw[2] as bigint,
-    ballotClosesAt: raw[3] as bigint,
-    settled: raw[4] as boolean,
-    outcome: (raw[5] as Address) ?? ZERO_ADDRESS,
+    kind: Number(raw[0]) as RoundKind,
+    proposalId: raw[1] as bigint,
+    e3Id: raw[2] as bigint,
+    openedAt: raw[3] as bigint,
+    ballotOpensAt: raw[4] as bigint,
+    ballotClosesAt: raw[5] as bigint,
+    settled: raw[6] as boolean,
+    outcome: (raw[7] as Address) ?? ZERO_ADDRESS,
+    targetTeam: Number(raw[8] ?? 0),
     candidates,
+    candidateTeams: Array.from(candidateTeams ?? []).map(Number),
     voters,
   };
 }

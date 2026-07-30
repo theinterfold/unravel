@@ -10,7 +10,8 @@
 #   ./scripts/play.sh --no-app     # bootstrap only (leaves the stack up)
 #   ./scripts/play.sh --reuse      # keep the running devnet, just deploy a fresh game
 #
-# Env overrides: ROSTER, CAMPAIGN_DURATION, BALLOT_DURATION, TALLY_GRACE, ANVIL_PORT, APP_PORT
+# Env overrides: TEAM_COUNT, MEMBERS_PER_TEAM, MERGE_AT, CAMPAIGN_DURATION, BALLOT_DURATION,
+#                TALLY_GRACE, ANVIL_PORT, APP_PORT, CRISP_VOTING_PLUGIN_ADDRESS
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,7 +22,10 @@ RPC="http://127.0.0.1:${PORT}"
 CRISP_SERVER="${CRISP_SERVER_URL:-http://127.0.0.1:4000}"
 APP_PORT="${APP_PORT:-3000}"
 
-ROSTER="${ROSTER:-4}"
+TEAM_COUNT="${TEAM_COUNT:-2}"
+MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-2}"
+MERGE_AT="${MERGE_AT:-2}"
+ROSTER=$((TEAM_COUNT * MEMBERS_PER_TEAM))
 # Long by default. The committee key takes ~290s to publish, and the ballot window has to fit a
 # human driving several wallets through browser proof generation at ~45-90s each — a window sized
 # for a script is unusable by hand.
@@ -57,6 +61,19 @@ for bin in cast forge; do
   command -v "$bin" >/dev/null 2>&1 || fail "$bin not found — install Foundry"
 done
 
+# The game creates its proposals on the CRISP Aragon plugin, so the plugin has to exist first and
+# have its censusProvider pointed back at the game once deployed. Without that link the coordination
+# server falls back to reconstructing eligibility from token transfer logs and the roster is ignored.
+CRISP_VOTING_PLUGIN_ADDRESS="${CRISP_VOTING_PLUGIN_ADDRESS:-}"
+if [ -z "$CRISP_VOTING_PLUGIN_ADDRESS" ]; then
+  fail "CRISP_VOTING_PLUGIN_ADDRESS is not set.
+       The game votes through the Aragon plugin in ./plugin, which must be deployed against a DAO
+       first. Deploy it, then:
+         CRISP_VOTING_PLUGIN_ADDRESS=<address> bun run play
+       Afterwards point the plugin at the game:
+         cast send <plugin> 'setCensusProvider(address)' <game>"
+fi
+
 # ─── 1. devnet ──────────────────────────────────────────────────────────────────────────────────
 
 if cast block-number --rpc-url "$RPC" >/dev/null 2>&1; then
@@ -82,7 +99,7 @@ CRISP_PROGRAM="$(get_env E3_PROGRAM_ADDRESS)"
 
 # ─── 2. deploy ──────────────────────────────────────────────────────────────────────────────────
 
-step "deploying the game (roster=$ROSTER, campaign=${CAMPAIGN_DURATION}s, ballot=${BALLOT_DURATION}s)"
+step "deploying the game ($TEAM_COUNT teams of $MEMBERS_PER_TEAM, campaign=${CAMPAIGN_DURATION}s)"
 DEPLOY_OUT="$(
   cd "$ROOT/contracts" &&
   INTERFOLD_ADDRESS="$INTERFOLD_ADDRESS" \
@@ -90,9 +107,10 @@ DEPLOY_OUT="$(
   CAMPAIGN_DURATION="$CAMPAIGN_DURATION" \
   BALLOT_DURATION="$BALLOT_DURATION" \
   TALLY_GRACE="$TALLY_GRACE" \
-  ROSTER_SIZE="$ROSTER" FINALISTS=2 MAX_MISSED_CHECKINS=0 ENTRY_FEE=0 \
-  COMMITTEE_SIZE=0 PARAM_SET=0 \
-  COMPUTE_PROVIDER_PARAMS="$COMPUTE_PROVIDER_PARAMS" \
+  TEAM_COUNT="$TEAM_COUNT" MEMBERS_PER_TEAM="$MEMBERS_PER_TEAM" MERGE_AT="$MERGE_AT" \
+  FINALISTS=2 MAX_MISSED_CHECKINS=0 ENTRY_FEE=0 \
+  CRISP_VOTING_PLUGIN_ADDRESS="$CRISP_VOTING_PLUGIN_ADDRESS" \
+  FEE_TOKEN_ADDRESS="$FEE_TOKEN" \
   forge script script/DeployGame.s.sol:DeployGame \
     --rpc-url "$RPC" --private-key "$DEPLOYER_KEY" --broadcast 2>&1
 )" || { echo "$DEPLOY_OUT" | tail -20; fail "deploy failed"; }
@@ -163,8 +181,11 @@ $(printf '\033[1m')Ready.$(printf '\033[0m')
     #8  0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97
     #9  0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6
 
-  In the app: Join with $ROSTER accounts -> Start the game -> campaign (${CAMPAIGN_DURATION}s) ->
-  ballot (${BALLOT_DURATION}s) -> Settle round.
+  In the app: Join $ROSTER accounts across $TEAM_COUNT teams -> Start the game -> campaign
+  (${CAMPAIGN_DURATION}s) -> ballot (${BALLOT_DURATION}s) -> Settle round.
+
+  A round is two ballots: everyone votes which team goes to council, then that team alone
+  votes one of its own out. Only the condemned team can vote in the second ballot.
 
   The ballot stays unavailable until the committee key publishes, roughly 290s after Start.
   That is expected, not a hang.

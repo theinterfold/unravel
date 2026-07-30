@@ -25,7 +25,7 @@
     "setup": "cd app && bun install && cd ../scripts/devnet && bun install",
     "test": "bun run contracts:test && bun run plugin:test && bun run check:encoding",
     "lint": "bun run contracts:fmt:check && bun run app:typecheck",
-    "plugin:build": "forge build --root plugin --skip 'test/**' --skip 'script/**'",
-    "plugin:test": "forge test --root plugin --match-path 'test/executability.t.sol'"
+    "plugin:build": "forge build --root plugin",
+    "plugin:test": "forge test --root plugin"
   }
 }

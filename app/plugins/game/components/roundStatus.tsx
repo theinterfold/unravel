@@ -1,5 +1,5 @@
 import { useEffect, useState, type FC } from "react";
-import type { Round, RoundPhase } from "../utils/gameTypes";
+import { ROUND_KIND_LABEL, type Round, type RoundPhase } from "../utils/gameTypes";
 import { useE3State } from "../hooks/useE3State";
 
 interface RoundStatusProps {
@@ -52,7 +52,7 @@ export const RoundStatus: FC<RoundStatusProps> = ({ round, tallyGrace }) => {
     <div className="box-border flex w-full flex-col gap-4 rounded-xl border border-neutral-100 bg-neutral-0 p-4 xl:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-semibold text-neutral-800">
-          Round {round.id + 1} — {copy.label}
+          Round {round.id + 1} · {ROUND_KIND_LABEL[round.kind]} — {copy.label}
         </h2>
         {target !== undefined && target > now ? (
           <span className="font-mono text-sm text-neutral-700">{formatCountdown(target - now)} left</span>

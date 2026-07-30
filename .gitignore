@@ -10,3 +10,4 @@ plugin/cache/
 plugin/lib/
 plugin/node_modules/
 plugin/out/
+plugin/vendored-tests/

@@ -11,11 +11,33 @@ export enum Stage {
 /// The phase within a round, derived from the round's timestamps rather than stored on-chain.
 export type RoundPhase = "campaign" | "ballot" | "tally" | "settled";
 
+/// Mirrors `SurvivalGame.RoundKind`. What a round's ballot decides — and therefore what its
+/// options are and who is allowed to vote.
+export enum RoundKind {
+  /// Everyone alive votes which team goes to council. Options are teams.
+  Tribal = 0,
+  /// One team votes which of its own members is eliminated. Options are members of that team.
+  Council = 1,
+  /// Post-merge: everyone alive votes directly to eliminate. Options are players.
+  Individual = 2,
+  /// The eliminated choose the winner from the finalists. Options are the finalists.
+  Jury = 3,
+}
+
+export const ROUND_KIND_LABEL: Record<RoundKind, string> = {
+  [RoundKind.Tribal]: "Tribal",
+  [RoundKind.Council]: "Council",
+  [RoundKind.Individual]: "Elimination",
+  [RoundKind.Jury]: "Jury",
+};
+
 export type GameConfig = {
   campaignDuration: bigint;
   ballotDuration: bigint;
   tallyGrace: bigint;
-  rosterSize: number;
+  teamCount: number;
+  membersPerTeam: number;
+  mergeAt: number;
   finalists: number;
   maxMissedCheckIns: number;
   entryFee: bigint;
@@ -23,18 +45,34 @@ export type GameConfig = {
 
 export type Round = {
   id: number;
+  kind: RoundKind;
+  proposalId: bigint;
   e3Id: bigint;
   openedAt: bigint;
   ballotOpensAt: bigint;
   ballotClosesAt: bigint;
   settled: boolean;
-  /// Eliminated player (elimination round) or winner (jury round). Zero until settled.
+  /// Eliminated player, or the winner in a jury round. Zero until settled.
   outcome: Address;
-  /// Ballot option index -> player. This is the mapping a vote is cast against.
+  /// Council rounds: the team whose member is being voted out. 0 otherwise.
+  targetTeam: number;
+  /// Ballot option index -> player. Empty for tribal rounds.
   candidates: Address[];
-  /// Who may vote. Differs from `candidates` in the jury round.
+  /// Ballot option index -> team. Tribal rounds only.
+  candidateTeams: number[];
+  /// Who may vote. Narrower than "everyone alive" in council and jury rounds.
   voters: Address[];
 };
+
+/// Whether this round's ballot options are teams rather than players.
+export function votesOnTeams(round: Round): boolean {
+  return round.kind === RoundKind.Tribal;
+}
+
+/// The number of ballot options, whichever kind they are.
+export function optionCount(round: Round): number {
+  return votesOnTeams(round) ? round.candidateTeams.length : round.candidates.length;
+}
 
 export type GameState = {
   stage: Stage;

@@ -5,65 +5,89 @@ import { AddressText } from "@/components/text/address";
 interface RosterProps {
   alive: Address[];
   graveyard: Address[];
-  /// Highlighted as "you" if it appears in either list.
+  /// Team id per player. Zero once teams have dissolved.
+  teamOf: Record<string, number>;
+  /// Highlighted as "you".
   self?: Address;
-  /// Immune this round, if any — shown but not eliminable.
-  immune?: Address;
+  /// The team currently condemned to a council round, if any.
+  condemnedTeam?: number;
+  /// True once the merge has happened — the roster stops being grouped.
+  merged?: boolean;
 }
 
-/// The living and the dead, side by side.
+/// The living and the dead.
 ///
-/// The graveyard is not decoration: eliminated players become the jury that picks the winner, so
-/// who is in it — and in what order they got there — is live strategic information.
-export const Roster: FC<RosterProps> = ({ alive, graveyard, self, immune }) => (
-  <div className="grid gap-6 md:grid-cols-2">
-    <Column title="Still in" count={alive.length}>
-      {alive.map((player) => (
-        <PlayerRow
-          key={player}
-          player={player}
-          isSelf={eq(player, self)}
-          badge={eq(player, immune) ? "immune" : undefined}
-        />
-      ))}
-    </Column>
+/// Grouped by team before the merge, because team is the unit the tribal round votes on — a flat
+/// list would hide the thing players are actually reasoning about. The graveyard is never grouped:
+/// once you are out, your team no longer matters, but the order you went does, since the jury is
+/// built from it.
+export const Roster: FC<RosterProps> = ({ alive, graveyard, teamOf, self, condemnedTeam, merged }) => {
+  const teams = new Map<number, Address[]>();
+  for (const player of alive) {
+    const team = merged ? 0 : (teamOf[player.toLowerCase()] ?? 0);
+    if (!teams.has(team)) teams.set(team, []);
+    teams.get(team)!.push(player);
+  }
+  const grouped = [...teams.entries()].sort((a, b) => a[0] - b[0]);
 
-    <Column title="Voted out" count={graveyard.length}>
-      {graveyard.length === 0 ? (
-        <p className="text-sm text-neutral-500">Nobody yet.</p>
-      ) : (
-        graveyard.map((player, i) => (
-          <PlayerRow key={player} player={player} isSelf={eq(player, self)} rank={i + 1} eliminated />
-        ))
-      )}
-    </Column>
-  </div>
-);
+  return (
+    <div className="grid gap-6 md:grid-cols-2">
+      <div className="box-border flex w-full flex-col gap-3 rounded-xl border border-neutral-100 bg-neutral-0 p-4 xl:p-6">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-semibold text-neutral-800">Still in</h2>
+          <span className="text-sm text-neutral-500">{alive.length}</span>
+        </div>
 
-const Column: FC<{ title: string; count: number; children: React.ReactNode }> = ({ title, count, children }) => (
-  <div className="box-border flex w-full flex-col gap-3 rounded-xl border border-neutral-100 bg-neutral-0 p-4 xl:p-6">
-    <div className="flex items-baseline justify-between">
-      <h2 className="text-lg font-semibold text-neutral-800">{title}</h2>
-      <span className="text-sm text-neutral-500">{count}</span>
+        {grouped.map(([team, members]) => (
+          <div key={team} className="flex flex-col gap-2">
+            {team !== 0 && (
+              <div className="flex items-baseline gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Team {team}</span>
+                {team === condemnedTeam && (
+                  <span className="rounded bg-critical-100 px-2 py-0.5 text-xs text-critical-700">at council</span>
+                )}
+                <span className="text-xs text-neutral-400">{members.length}</span>
+              </div>
+            )}
+            {members.map((player) => (
+              <PlayerRow key={player} player={player} isSelf={eq(player, self)} />
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <div className="box-border flex w-full flex-col gap-3 rounded-xl border border-neutral-100 bg-neutral-0 p-4 xl:p-6">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-semibold text-neutral-800">Voted out</h2>
+          <span className="text-sm text-neutral-500">{graveyard.length}</span>
+        </div>
+        {graveyard.length === 0 ? (
+          <p className="text-sm text-neutral-500">Nobody yet.</p>
+        ) : (
+          <>
+            {graveyard.map((player, i) => (
+              <PlayerRow key={player} player={player} isSelf={eq(player, self)} rank={i + 1} eliminated />
+            ))}
+            <p className="text-xs text-neutral-400">These are the jury. They decide the winner.</p>
+          </>
+        )}
+      </div>
     </div>
-    <div className="flex flex-col gap-2">{children}</div>
-  </div>
-);
+  );
+};
 
 const PlayerRow: FC<{
   player: Address;
   isSelf?: boolean;
   eliminated?: boolean;
   rank?: number;
-  badge?: string;
-}> = ({ player, isSelf, eliminated, rank, badge }) => (
+}> = ({ player, isSelf, eliminated, rank }) => (
   <div className="flex items-center justify-between gap-2 rounded-lg bg-neutral-50 px-3 py-2">
     <span className={eliminated ? "text-neutral-400 line-through" : "text-neutral-800"}>
       <AddressText>{player}</AddressText>
     </span>
     <span className="flex items-center gap-2 text-xs">
       {isSelf && <span className="rounded bg-primary-100 px-2 py-0.5 text-primary-700">you</span>}
-      {badge && <span className="rounded bg-success-100 px-2 py-0.5 text-success-700">{badge}</span>}
       {rank !== undefined && <span className="text-neutral-400">#{rank}</span>}
     </span>
   </div>

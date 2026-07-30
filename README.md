@@ -3,14 +3,27 @@
 A social survival game whose eliminations are decided by **secret ballot**, built on Interfold's
 [CRISP](https://blog.theinterfold.com/crisp-private-voting-secret-ballot-fhe-zkp-mpc/) protocol.
 
-Ten players. Each round: campaign in public, vote in private, one player goes home. The last two
-face a jury of everyone they eliminated.
+Up to a hundred players in teams. Each round: campaign in public, vote in private, one player goes
+home. The last two face a jury of everyone they eliminated.
 
 ```
    CAMPAIGN (public)  ──▶  BALLOT (encrypted)  ──▶  TALLY (counts only)
-   posts, alliances,       one credit each,         "3 for Alice, 2 for Bob"
+   posts, alliances,       one credit each,         "3 for Team 2, 2 for Team 1"
    promises on record      re-votes allowed         nobody learns who cast what
 ```
+
+An elimination takes **two ballots**, and both are secret:
+
+| Round | Who votes | Options | Outcome |
+| --- | --- | --- | --- |
+| **Tribal** | everyone alive | the surviving teams | one team is sent to council |
+| **Council** | that team, alone | that team's members | one member eliminated |
+
+Confining the council vote to the condemned team is what makes the two stages mean something. If
+everyone voted in both, the same majority would just pick the victim directly and the tribal round
+would be theatre. It also doubles the E3s per elimination.
+
+Teams dissolve once few enough survive to fit on one ballot, after which everyone votes directly.
 
 ## Why secret ballots make this a game
 
@@ -31,8 +44,12 @@ what keeps the social layer load-bearing.
 Both were found by reading the CRISP implementation, and both are enforced in the contracts:
 
 - **`MAX_OPTIONS = 10`** in the Noir circuit (`circuits/lib/src/constants.nr`). At most ten ballot
-  candidates. The on-chain CRISP program only checks `numOptions >= 2`, so exceeding the upper bound
-  fails at *proving* time — `SurvivalGame` therefore rejects it at round-open instead.
+  options. The on-chain CRISP program only checks `numOptions >= 2`, so exceeding the upper bound
+  fails at *proving* time — the contracts therefore reject it at round-open instead.
+
+  This is why the game has teams. Applying the bound **twice** — at most 10 teams, at most 10 members
+  each — supports 100 players while every ballot stays inside it. The constraint became the
+  structure rather than the ceiling.
 - **Eligibility is decided by the CRISP coordination server**, not the chain. By default it is
   reconstructed from Etherscan transfer/delegation logs. `SurvivalGame` implements
   `getCensus(uint256 e3Id)` so the server reads the roster directly instead — exact, and it works
@@ -43,8 +60,12 @@ Both were found by reading the CRISP implementation, and both are enforced in th
 | Contract | Role |
 | --- | --- |
 | `RosterToken` | Soulbound `ERC20Votes` badge, one unit per member. Deployed twice: LIFE (survivors) and JURY (the eliminated). Auto-delegates on mint; timestamp clock. |
-| `SurvivalGame` | The state machine: lobby, rounds, ballots, tally settlement, jury endgame, prize pot. |
+| `SurvivalGame` | The state machine: lobby and teams, tribal/council/individual/jury rounds, tally settlement, prize pot. |
 | `IImmunitySource` | Optional hook for a *public* immunity vote (see below). |
+| `plugin/CrispVoting` | Vendored Aragon plugin. Creating a proposal on it requests the round's E3. Separate Foundry root — see `plugin/README.md`. |
+
+Ballots never touch either contract: voters submit to the CRISP coordination server, which publishes
+them to the CRISP program. The game only pins who may vote and on whom, then reads the tally.
 
 ## Playing it locally
 
@@ -53,8 +74,19 @@ serves the frontend:
 
 ```bash
 bun run setup   # first time only — installs app + harness deps
-bun run play
+CRISP_VOTING_PLUGIN_ADDRESS=<address> bun run play
 ```
+
+The plugin has to be deployed first (it needs a DAO), and its `censusProvider` pointed back at the
+game afterwards:
+
+```bash
+cast send <plugin> 'setCensusProvider(address)' <game>
+```
+
+Without that link the coordination server asks the plugin — the E3's requester — for the electorate,
+gets nothing, and falls back to reconstructing eligibility from token transfer logs, ignoring the
+roster entirely.
 
 The chain runs on **8545**, which is what MetaMask's built-in "Localhost 8545" network already
 points at — so there is usually nothing to configure. Import anvil accounts **6–9**; accounts 0–5
@@ -70,13 +102,14 @@ processes that transact on their own.
 | `bun run play:headless` | bootstrap only, no frontend |
 | `bun run devnet:up` / `devnet:down` | start / stop the stack (down kills only this stack) |
 | `bun run devnet:status` | what is running, and what phase the round is in |
-| `bun run devnet:round 4` | drive a whole round headlessly, no browser |
+| `bun run devnet:round` | drive a round headlessly (`TEAM_COUNT`/`MEMBERS_PER_TEAM` to size it) |
 | `bun run devnet:logs` | tail the coordination server and ciphernodes |
 | `bun run contracts:build` / `contracts:test` / `contracts:fmt` | Foundry |
 | `bun run contracts:abi` | regenerate the app's ABIs after a contract change |
 | `bun run app:dev` / `app:build` / `app:typecheck` | frontend |
 | `bun run check:encoding` | verify the ballot encoding round-trips |
-| `bun run test` | contracts + encoding |
+| `bun run plugin:build` / `plugin:test` | vendored Aragon plugin |
+| `bun run test` | contracts + plugin + encoding |
 | `bun run lint` | `forge fmt --check` + app typecheck |
 
 `devnet:status` is usually the fastest way to answer "why isn't this working" — most confusing
@@ -97,7 +130,7 @@ protects other stacks from this one, not the reverse.
 the chain genuinely cannot tell who voted. Inactivity forfeits therefore key off an explicit public
 `checkIn()`, not off the ballot.
 
-**Ties are frequent at small rosters**, so they get a defined rule rather than an accident of
+**Ties are frequent at these sizes**, so they get a defined rule rather than an accident of
 iteration order: the winner is drawn from the tied set using the tally itself as entropy. The counts
 are fixed by the time settlement runs, so the draw is deterministic and verifiable, and unlike
 `block.prevrandao` no block producer can grind it.

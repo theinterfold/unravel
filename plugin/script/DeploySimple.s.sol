@@ -127,7 +127,10 @@ contract CrispVotingScript is Script {
             paramSet: crispEnvVariables.paramSet,
             crispProgramAddress: crispEnvVariables.crispProgramAddress,
             computeProviderParams: crispEnvVariables.computeProviderParams,
-            votingSettings: crispEnvVariables.votingSettings
+            votingSettings: crispEnvVariables.votingSettings,
+            // Wired up after deployment with `setCensusProvider`: the app that owns the electorate
+            // needs this plugin's address to exist before it can be deployed itself.
+            censusProvider: address(0)
         });
     }
 
