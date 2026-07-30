@@ -82,7 +82,9 @@ export const Roster: FC<RosterProps> = ({ alive, graveyard, teamOf, self, condem
         ))}
       </section>
 
-      <section className="un-panel un-stack" style={{ gap: 14 }}>
+      {/* The chamber: green-shifted ground, used for the graveyard and the jury and nowhere else.
+          Once you are in here you are playing a different game, and the room should say so. */}
+      <section className="un-chamber un-stack" style={{ gap: 14 }}>
         <div className="un-label-dim">The jury · {graveyard.length} seated</div>
         {graveyard.length === 0 ? (
           <p className="un-fine">Nobody yet.</p>

@@ -99,3 +99,40 @@ export function useTally(round: number | undefined, settled: boolean, pollMs = 1
 
   return { outcome, isLoading };
 }
+
+const WINNER = parseAbiItem("event WinnerDeclared(address indexed player, uint256 prize)");
+
+/// The prize actually paid out.
+///
+/// Not `pot`: `settleRound` transfers the pot and sets it to zero in the same call, so by the time
+/// an endgame screen renders, the contract's own `pot` reads 0. The event is the only place the
+/// number survives.
+export function usePrize(ended: boolean) {
+  const [prize, setPrize] = useState<bigint | undefined>();
+
+  useEffect(() => {
+    if (!ended) return;
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const logs = await publicClient.getLogs({
+          address: PUB_GAME_ADDRESS,
+          event: WINNER,
+          fromBlock: BigInt(PUB_DEPLOYMENT_BLOCK),
+          toBlock: "latest",
+        });
+        if (!cancelled) setPrize(logs.at(-1)?.args.prize as bigint | undefined);
+      } catch (e) {
+        console.error("usePrize:", e);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [ended]);
+
+  return prize;
+}

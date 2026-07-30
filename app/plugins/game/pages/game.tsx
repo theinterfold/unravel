@@ -5,7 +5,7 @@ import { PUB_GAME_ADDRESS } from "@/constants";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 import { useGame, useRound, useCurrentRoundId, useTeams } from "../hooks/useGame";
 import { useCheckIn } from "../hooks/useCheckIn";
-import { useTally } from "../hooks/useTally";
+import { useTally, usePrize } from "../hooks/useTally";
 import { useSealedLocally } from "../hooks/useSealedLocally";
 import { Roster } from "../components/roster";
 import { Ballot } from "../components/ballot";
@@ -13,6 +13,7 @@ import { Campaign } from "../components/campaign";
 import { RoundStatus } from "../components/roundStatus";
 import { Reveal } from "../components/reveal";
 import { CheckIn, CheckInTakeover, shouldTakeOver } from "../components/checkIn";
+import { Finalists } from "../components/finalists";
 import { RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
 import type { Address } from "viem";
@@ -30,6 +31,7 @@ export default function GamePage() {
   const teamOf = useTeams(allPlayers);
   const checkIn = useCheckIn(address, roundId, game?.config.maxMissedCheckIns ?? 0);
   const { outcome } = useTally(roundId, round?.settled ?? false);
+  const prize = usePrize(game?.stage === Stage.Ended);
   const { sealed, markSealed } = useSealedLocally(round?.e3Id);
 
   if (isLoading || !game) {
@@ -88,11 +90,19 @@ export default function GamePage() {
               Settled · {game.roundCount} rounds
             </div>
             <h2 className="un-verdict" style={{ marginTop: 14 }}>
-              {shortAddress(game.winner)} <em>wins</em>.
+              The jury chose
             </h2>
-            <p className="un-mono" style={{ marginTop: 14, color: "#4c534c" }}>
-              POT {game.pot.toString()} PAID OUT
+            <p className="un-mono" style={{ fontSize: 21, color: "var(--un-fg)", marginTop: 6 }}>
+              {shortAddress(game.winner)}
             </p>
+            {/* The pot is already zero by the time this renders — settleRound pays out and clears it
+                in the same call — so the figure comes from the payout event, not from `pot`. */}
+            <div className="un-payout">
+              <div className="un-payout-figure">{(prize ?? game.pot).toString()}</div>
+              <div className="un-label" style={{ color: "var(--un-ink)", marginTop: 6 }}>
+                Fee-token units · paid out
+              </div>
+            </div>
           </section>
         )}
 
@@ -139,6 +149,17 @@ export default function GamePage() {
 
         {isAlive && round && !round.settled && !checkIn.immature && (
           <CheckIn state={checkIn} secondsLeft={secondsLeft} />
+        )}
+
+        {/* The jury stage puts the survivors on trial rather than on the board. */}
+        {game.stage === Stage.Jury && (
+          <Finalists
+            finalists={game.alive}
+            teamOf={teamOf}
+            jurors={game.jurors}
+            roundCount={game.roundCount}
+            self={address}
+          />
         )}
 
         {round?.settled && <Reveal round={round} outcome={outcome} self={address} />}
@@ -220,22 +241,25 @@ export default function GamePage() {
   );
 }
 
-/// Cream chrome — the only place the game goes light while you are alive.
+/// The chrome. Ink, not cream — v3 has no light surfaces at all.
 const Masthead = ({
   game,
   address,
 }: {
-  game: { stage: Stage; alive: Address[]; pot: bigint; roundCount: number };
+  game: { stage: Stage; alive: Address[]; jurors: Address[]; pot: bigint; roundCount: number };
   address?: Address;
 }) => (
   <header className="un-masthead">
     <h1 className="un-wordmark">UNRAVEL</h1>
-    <div className="un-row" style={{ gap: 16 }}>
-      <span className="un-mono" style={{ fontSize: 11, letterSpacing: ".18em", color: "#4c534c" }}>
-        {stageLabel(game.stage)} · {game.alive.length} ALIVE · POT {game.pot.toString()}
+    <div className="un-row" style={{ gap: 10 }}>
+      <span className={`un-pill ${game.stage === Stage.Playing ? "un-pill-live" : ""}`}>
+        {stageLabel(game.stage)}
       </span>
+      <span className="un-pill">{game.alive.length} STILL BREATHING</span>
+      {game.jurors.length > 0 && <span className="un-pill">{game.jurors.length} ON THE JURY</span>}
+      <span className="un-pill">POT {game.pot.toString()}</span>
       {address && (
-        <span className="un-tag un-tag-you" title={address}>
+        <span className="un-pill un-pill-live" title={address}>
           {shortAddress(address)}
         </span>
       )}

@@ -8,20 +8,32 @@
  *
  * Every colour is a flat token. The only gradient in the system is the dot-field's radial, and the
  * only sweep is the one on the proof bar.
+ *
+ * v3 is dark throughout. There is no light mode: the earlier cream chrome and mint reading surfaces
+ * are gone, and the two places the game used to go light — the jury chamber and the endgame
+ * certificate — are now green-shifted darks (chamber, vitrine) instead. Anything still reaching for
+ * a light background is out of date.
  */
 
 :root {
-  /* Ground */
+  /* Ground. Mostly black, one loud green — the game never goes light. */
+  --un-void: #0e1211; /* behind everything: the gap between panels, the only true black */
   --un-ink: #14171a; /* the game ground — every play screen */
   --un-panel: #1c211f; /* raised cards, HUD blocks */
   --un-panel-dim: #191d1b; /* the eliminated */
   --un-line: #2a2f2c;
   --un-line-2: #3a423c;
 
-  /* Light surfaces. Cream is chrome; mint is for reading; white is an event. */
-  --un-cream: #f2f1ec;
-  --un-mint: #e9f2ea;
-  --un-paper: #ffffff;
+  /* Green-shifted grounds, for the half of the game you play after you are dead. Cool enough that
+     the dead can feel the room change. */
+  --un-chamber: #101a14; /* the graveyard and the jury, only */
+  --un-vitrine: #16201a; /* raised inside the chamber: finalists, the endgame certificate */
+  --un-vitrine-line: #2f3a33;
+
+  /* Radius. Pills for status, 12 for cards, 18 for whole surfaces. */
+  --un-r-pill: 999px;
+  --un-r-card: 12px;
+  --un-r-surface: 18px;
 
   /* Meaning. Green is never a tribe and red is never a tribe. */
   --un-sage: #8fa596; /* privacy, and only privacy */
@@ -86,6 +98,16 @@
     transform: none;
   }
 }
+/* Bars slam in from zero. scaleX rather than width so the growth is composited, and because a
+   width transition from 0 makes a 0-vote bar look like it is still loading. */
+@keyframes un-grow {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
 @keyframes un-alarm {
   0%,
   100% {
@@ -109,7 +131,7 @@
 /* ─── Shell ──────────────────────────────────────────────────────────────────────────────────── */
 
 .un {
-  background: var(--un-ink);
+  background: var(--un-void);
   color: var(--un-fg-2);
   font-family: var(--un-sans);
   min-height: 100vh;
@@ -122,9 +144,9 @@
 }
 
 .un-masthead {
-  background: var(--un-cream);
-  color: var(--un-ink);
-  border-bottom: 1px solid var(--un-ink);
+  background: var(--un-ink);
+  color: var(--un-fg);
+  border-bottom: 1px solid var(--un-line);
   padding: 18px 20px;
   display: flex;
   align-items: center;
@@ -139,6 +161,23 @@
   letter-spacing: -0.01em;
   margin: 0;
   font-weight: 400;
+  color: var(--un-fg);
+}
+
+/* Status chips in the chrome. Pills, so they never read as buttons. */
+.un-pill {
+  border: 1px solid var(--un-line-2);
+  color: var(--un-fg-2);
+  padding: 8px 16px;
+  border-radius: var(--un-r-pill);
+  font-family: var(--un-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+.un-pill-live {
+  background: var(--un-pistachio);
+  color: var(--un-ink);
+  border-color: var(--un-pistachio);
 }
 
 /* ─── Type ───────────────────────────────────────────────────────────────────────────────────── */
@@ -212,11 +251,13 @@
 .un-panel {
   background: var(--un-panel);
   padding: 22px 24px;
+  border-radius: var(--un-r-card);
 }
 .un-panel-ink {
   background: var(--un-ink);
   border: 1px solid var(--un-line);
   padding: 22px 24px;
+  border-radius: var(--un-r-card);
 }
 .un-stack {
   display: grid;
@@ -277,9 +318,10 @@
   font-size: 14px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 14px 22px;
+  padding: 14px 24px;
   background: var(--un-pistachio);
   color: var(--un-ink);
+  border-radius: var(--un-r-pill);
   transition: filter 0.15s ease;
 }
 .un-btn:hover:not(:disabled) {
@@ -313,6 +355,7 @@
 }
 
 .un-select {
+  border-radius: var(--un-r-pill);
   font-family: var(--un-mono);
   font-size: 13px;
   background: var(--un-panel);
@@ -322,6 +365,7 @@
 }
 
 .un-textarea {
+  border-radius: var(--un-r-card);
   width: 100%;
   font-family: var(--un-sans);
   font-size: 14px;
@@ -342,6 +386,7 @@
 /* Five round types, five badges. Only two get a coloured frame: COUNCIL, because somebody is
    definitely dying, and IMMUNITY, because it is the one round where votes are public. */
 .un-badge {
+  border-radius: var(--un-r-card);
   border: 1px solid var(--un-line);
   padding: 14px 12px;
   text-align: center;
@@ -389,6 +434,7 @@
 }
 .un-seg {
   flex: 1;
+  border-radius: 0 0 6px 6px;
   background: var(--un-panel);
   border-top: 3px solid var(--un-line);
   padding: 9px 12px;
@@ -456,6 +502,8 @@
   display: flex;
   align-items: stretch;
   background: var(--un-panel);
+  border-radius: var(--un-r-card);
+  overflow: hidden;
 }
 .un-piece-bar {
   width: 8px;
@@ -515,7 +563,8 @@
   font-family: var(--un-mono);
   font-size: 10.5px;
   letter-spacing: 0.1em;
-  padding: 3px 8px;
+  padding: 3px 10px;
+  border-radius: var(--un-r-pill);
 }
 .un-tag-you {
   background: var(--un-pistachio);
@@ -541,6 +590,7 @@
 
 /* Three lives, spent by forgetting. Escalates in three steps; the last takes over the screen. */
 .un-checkin {
+  border-radius: var(--un-r-card);
   background: var(--un-panel);
   border-left: 4px solid var(--un-green);
   padding: 14px 16px;
@@ -625,6 +675,7 @@
 /* ─── Ballot ─────────────────────────────────────────────────────────────────────────────────── */
 
 .un-option {
+  border-radius: var(--un-r-card);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -672,6 +723,31 @@
   background: var(--un-panel);
   border: 1px solid var(--un-line);
   padding: 22px;
+  border-radius: var(--un-r-card);
+}
+
+/* All anyone ever sees. Real bytes from the submitted artifact — never decorative hex, which would
+   be the same class of lie as an invented progress percentage. */
+.un-cipher {
+  border-top: 1px solid var(--un-line);
+  margin-top: 14px;
+  padding-top: 12px;
+  overflow: hidden;
+}
+.un-cipher-label {
+  font-family: var(--un-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: #4f5a52;
+  margin-bottom: 6px;
+}
+.un-cipher-bytes {
+  font-family: var(--un-mono);
+  font-size: 11px;
+  line-height: 1.7;
+  color: #6f8a78;
+  white-space: nowrap;
+  overflow-x: auto;
 }
 .un-seal-elapsed {
   font-weight: 800;
@@ -750,6 +826,7 @@
 .un-receipt {
   background: var(--un-green);
   padding: 20px;
+  border-radius: var(--un-r-card);
 }
 .un-receipt-head {
   display: flex;
@@ -800,6 +877,7 @@
   background: var(--un-panel);
   border: 1px solid var(--un-pistachio);
   padding: 18px 20px;
+  border-radius: var(--un-r-card);
 }
 .un-waiting-head {
   display: flex;
@@ -822,6 +900,7 @@
 }
 
 .un-error {
+  border-radius: var(--un-r-card);
   border-left: 4px solid var(--un-condemned);
   background: rgba(226, 74, 58, 0.1);
   padding: 14px 16px;
@@ -862,7 +941,9 @@
   height: 10px;
   background: var(--un-line-2);
   min-width: 3px;
-  transition: width 0.4s ease-out;
+  transform-origin: left center;
+  animation: un-grow 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  border-radius: 2px;
 }
 .un-tally-lead .un-tally-name,
 .un-tally-lead .un-tally-count {
@@ -882,37 +963,52 @@
   background: var(--un-line);
 }
 
-/* ─── Reading surfaces ───────────────────────────────────────────────────────────────────────── */
+/* ─── The chamber ────────────────────────────────────────────────────────────────────────────── */
 
-/* Light mode is where you go when you stop playing and start judging. */
+/* Where you go when you stop playing and start judging. Not lighter — greener. The shift is small
+   on purpose: it should register as the room changing, not as a different product. */
 .un-chamber {
-  background: var(--un-mint);
-  color: var(--un-ink);
-  padding: 24px;
-}
-.un-chamber .un-label {
-  color: var(--un-green);
-}
-.un-chamber .un-note,
-.un-chamber .un-fine {
-  color: #4c534c;
-}
-.un-chamber .un-prose {
-  color: #333;
+  background: var(--un-chamber);
+  color: var(--un-fg-2);
+  padding: 22px 24px;
+  border: 1px solid var(--un-line);
+  border-radius: var(--un-r-surface);
 }
 
-/* White is an event. */
+/* Raised inside the chamber: finalist cards and the endgame certificate. The lightest the game
+   ever gets, which is still dark. */
+.un-vitrine {
+  background: var(--un-vitrine);
+  border: 1px solid var(--un-vitrine-line);
+  padding: 22px;
+  border-radius: var(--un-r-card);
+}
+.un-vitrine-won {
+  border: 2px solid var(--un-green);
+}
+
 .un-certificate {
-  background: var(--un-paper);
-  color: var(--un-ink);
-  padding: 40px 32px;
+  background: var(--un-vitrine);
+  border: 1px solid var(--un-line);
+  border-radius: var(--un-r-surface);
+  color: var(--un-fg);
+  padding: 34px 28px;
   text-align: center;
+  overflow: hidden;
 }
-.un-certificate .un-verdict {
+/* The prize is the one place a number is allowed to shout. */
+.un-payout {
+  background: var(--un-pistachio);
   color: var(--un-ink);
+  padding: 22px 16px;
+  margin: 20px 0;
 }
-.un-certificate .un-verdict em {
-  color: var(--un-green);
+.un-payout-figure {
+  font-weight: 800;
+  font-size: clamp(40px, 9vw, 68px);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em;
 }
 
 /* ─── Layout helpers ─────────────────────────────────────────────────────────────────────────── */

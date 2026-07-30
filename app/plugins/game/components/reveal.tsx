@@ -80,7 +80,11 @@ export const Reveal: FC<RevealProps> = ({ round, outcome, self }) => {
                 </span>
                 <span className="un-tally-count">{count.toString()}</span>
               </div>
-              <div className="un-tally-bar" style={{ width: `${Math.max(3, width)}%` }} />
+              {/* Same delay as the row, so the bar grows with its label rather than ahead of it. */}
+              <div
+                className="un-tally-bar"
+                style={{ width: `${Math.max(3, width)}%`, animationDelay: `${i * 120}ms` }}
+              />
             </div>
           );
         })}

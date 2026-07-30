@@ -20,6 +20,8 @@ interface CastBallotState {
   votingStep: VotingStep;
   stepMessage: string;
   txHash: string | null;
+  /// A short prefix of the encoded proof actually submitted, for display. See `setCiphertext`.
+  ciphertext: string | null;
 }
 
 interface VoteResponse {
@@ -56,6 +58,7 @@ export function useCastBallot(): CastBallotState {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [ciphertext, setCiphertext] = useState<string | null>(null);
 
   const getRoundState = async (e3Id: bigint): Promise<IRoundDetailsResponse> =>
     (await crispSdk.getRoundStateLite(Number(e3Id))) as unknown as IRoundDetailsResponse;
@@ -152,11 +155,24 @@ export function useCastBallot(): CastBallotState {
       setVotingStep("broadcasting");
       setStepMessage("Broadcasting...");
 
+      // What the world gets to see of your vote. Shown to the player as a prefix of the real encoded
+      // proof rather than as generated hex: a decorative blob would be the same class of lie as an
+      // invented progress percentage, and this component's whole argument is that the bytes are all
+      // anyone ever has.
+      const encoded = encodeSolidityProof(proof);
+      setCiphertext(
+        encoded
+          .replace(/^0x/, "")
+          .slice(0, 24)
+          .replace(/(.{4})/g, "$1 ")
+          .trim()
+      );
+
       const response = await fetch(`${PUB_CRISP_SERVER_URL}/voting/broadcast`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          encoded_proof: encodeSolidityProof(proof),
+          encoded_proof: encoded,
           address,
           round_id: Number(e3Id),
         }),
@@ -190,5 +206,6 @@ export function useCastBallot(): CastBallotState {
     votingStep,
     stepMessage,
     txHash,
+    ciphertext,
   };
 }

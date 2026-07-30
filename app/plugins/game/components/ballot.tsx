@@ -42,7 +42,7 @@ const COPY: Record<RoundKind, { title: string; blurb: string }> = {
 /// cast against. Rendering straight from the round's own arrays keeps the two in step.
 export const Ballot: FC<BallotProps> = ({ round, canVote, self, onSealed }) => {
   const [selected, setSelected] = useState<number | null>(null);
-  const { castBallot, castMask, isLoading, votingStep, stepMessage, error, txHash } = useCastBallot();
+  const { castBallot, castMask, isLoading, votingStep, stepMessage, error, txHash, ciphertext } = useCastBallot();
   const { e3 } = useE3State(round.e3Id);
 
   // A vote is encrypted under the committee's key, so there is nothing to cast until it exists. The
@@ -116,7 +116,7 @@ export const Ballot: FC<BallotProps> = ({ round, canVote, self, onSealed }) => {
       {/* The sealing state replaces the controls entirely while it runs: there is nothing useful to
           press, and leaving a live button next to a minute of work invites a second click. */}
       {(isLoading || sealed || votingStep === "error") && (
-        <Sealing step={votingStep} message={stepMessage} txHash={txHash} />
+        <Sealing step={votingStep} message={stepMessage} txHash={txHash} ciphertext={ciphertext} />
       )}
 
       {!isLoading && (

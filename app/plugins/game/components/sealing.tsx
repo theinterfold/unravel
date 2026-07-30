@@ -6,6 +6,9 @@ interface SealingProps {
   step: VotingStep;
   message: string;
   txHash?: string | null;
+  /// A prefix of the encoded proof actually submitted. Absent until there is one — nothing is
+  /// invented to fill the space.
+  ciphertext?: string | null;
   onAbandon?: () => void;
 }
 
@@ -38,7 +41,7 @@ const PASSAGES = [
 /// and the honest expected range" would be invented. The bar below tracks elapsed time against that
 /// range and says so; it is not a progress bar and does not pretend to be one. An invented
 /// percentage that sticks at 94% costs more trust than no percentage ever earned.
-export const Sealing: FC<SealingProps> = ({ step, message, txHash, onAbandon }) => {
+export const Sealing: FC<SealingProps> = ({ step, message, txHash, ciphertext, onAbandon }) => {
   const running = step !== "idle" && step !== "complete" && step !== "error";
   const elapsed = useElapsed(running);
   const passage = PASSAGES[Math.min(PASSAGES.length - 1, Math.floor(elapsed / 20))];
@@ -62,6 +65,16 @@ export const Sealing: FC<SealingProps> = ({ step, message, txHash, onAbandon }) 
           <p className="un-receipt-body">
             {message || "Submitted."} The counts open when the tally begins. Not even you can open it again.
           </p>
+          {ciphertext && (
+            <div className="un-cipher">
+              <div className="un-cipher-label" style={{ color: "#b6d9bf" }}>
+                Ciphertext — this is all anyone ever sees
+              </div>
+              <div className="un-cipher-bytes" style={{ color: "#d7ecdc" }}>
+                {ciphertext} …
+              </div>
+            </div>
+          )}
           {txHash && (
             <div className="un-receipt-chain">
               tx {txHash}
