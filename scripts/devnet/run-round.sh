@@ -15,12 +15,9 @@
 
 set -euo pipefail
 
-TEAM_COUNT="${TEAM_COUNT:-2}"
-MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-2}"
-ROSTER=$((TEAM_COUNT * MEMBERS_PER_TEAM))
+# Team sizes and the server URL are read from .devnet.env below; these are only fallbacks for a
+# hand-driven run. Anything derived from them has to be computed *after* that file is sourced.
 RPC="${RPC_URL:-http://127.0.0.1:8545}"
-CRISP_SERVER="${CRISP_SERVER_URL:-http://127.0.0.1:4000}"
-
 # The campaign window has to outlast committee sortition and the DKG, because the ballot window
 # opens the moment it ends — a voter cannot encrypt anything before the committee key exists.
 #
@@ -29,10 +26,6 @@ CRISP_SERVER="${CRISP_SERVER_URL:-http://127.0.0.1:4000}"
 # put the key 107s *after* the ballot opened, and every ballot failed. 480s leaves real headroom;
 # treat ~290s as the floor to measure against rather than a constant to trust, since it moves with
 # hardware, committee size and preset.
-CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-480}"
-BALLOT_DURATION="${BALLOT_DURATION:-240}"
-TALLY_GRACE="${TALLY_GRACE:-120}"
-
 # Deterministic anvil accounts (mnemonic "test test test ...").
 #
 # Account roles on a CRISP devnet are NOT free to choose:
@@ -90,73 +83,39 @@ send() {
   return 0
 }
 
-# ─── Resolve the devnet deployment ──────────────────────────────────────────────────────────────
-
-CRISP_DIR="${CRISP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../interfold/.claude/worktrees/survival-game/examples/CRISP" && pwd)}"
-ENV_FILE="$CRISP_DIR/server/.env"
-[ -f "$ENV_FILE" ] || fail "no $ENV_FILE — has 'pnpm dev:setup' run?"
-
-get_env() { grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d ' '; }
-
-INTERFOLD_ADDRESS="$(get_env INTERFOLD_ADDRESS)"
-FEE_TOKEN="$(get_env FEE_TOKEN_ADDRESS)"
-CRISP_PROGRAM="$(get_env E3_PROGRAM_ADDRESS)"
-
-[ -n "$INTERFOLD_ADDRESS" ] || fail "INTERFOLD_ADDRESS missing"
-step "devnet: interfold=$INTERFOLD_ADDRESS feeToken=$FEE_TOKEN crispProgram=$CRISP_PROGRAM"
-
-cast block-number --rpc-url "$RPC" >/dev/null 2>&1 || fail "no chain at $RPC — is 'pnpm dev:up' running?"
-curl -sf "$CRISP_SERVER/health" >/dev/null 2>&1 || echo "note: $CRISP_SERVER/health not responding; continuing"
-
-# ─── Deploy the game ────────────────────────────────────────────────────────────────────────────
+# ─── Load the deployment ────────────────────────────────────────────────────────────────────────
 #
-# Durations are short but not arbitrary: the campaign window has to outlast committee sortition and
-# the DKG, because the ballot window opens at the end of it. This is the R1 floor the plan flagged
-# as unmeasured — if the committee key is not published by the time the ballot opens, this run is
-# what tells us so.
+# Addresses come from .devnet.env, written by scripts/play.sh when it deploys. This script used to
+# deploy the game itself, which meant two places had to agree on deployment order — and they stopped
+# agreeing the moment tokens and the plugin had to be deployed first. One writer, many readers.
 
-step "deploying game (roster=$ROSTER)"
-CONTRACTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../contracts" && pwd)"
+STATE="${DEVNET_ENV:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.devnet.env}"
+[ -f "$STATE" ] || fail "no $STATE — deploy first with: bun run play:headless"
+# shellcheck disable=SC1090
+. "$STATE"
 
-DEPLOY_OUT="$(
-  cd "$CONTRACTS_DIR" &&
-  INTERFOLD_ADDRESS="$INTERFOLD_ADDRESS" \
-  CRISP_PROGRAM_ADDRESS="$CRISP_PROGRAM" \
-  CAMPAIGN_DURATION="$CAMPAIGN_DURATION" \
-  BALLOT_DURATION="$BALLOT_DURATION" \
-  TALLY_GRACE="$TALLY_GRACE" \
-  ROSTER_SIZE="$ROSTER" \
-  FINALISTS=2 \
-  MAX_MISSED_CHECKINS=0 \
-  ENTRY_FEE=0 \
-  COMMITTEE_SIZE=0 \
-  PARAM_SET=0 \
-  COMPUTE_PROVIDER_PARAMS=0x7b226e616d65223a225249534330222c22706172616c6c656c223a66616c73652c2262617463685f73697a65223a347d \
-  forge script script/DeployGame.s.sol:DeployGame \
-    --rpc-url "$RPC" --private-key "$DEPLOYER_KEY" --broadcast 2>&1
-)" || { echo "$DEPLOY_OUT"; fail "deploy failed"; }
+for v in GAME LIFE JURY PLUGIN FEE_TOKEN CRISP_PROGRAM RPC_URL; do
+  eval "val=\${$v:-}"
+  [ -n "$val" ] || fail "$v missing from $STATE — re-run: bun run play:headless"
+done
+RPC="$RPC_URL"
 
-GAME="$(echo "$DEPLOY_OUT" | grep -Eo 'GAME 0x[0-9a-fA-F]{40}' | tail -1 | awk '{print $2}')"
-[ -n "$GAME" ] || { echo "$DEPLOY_OUT"; fail "could not parse game address"; }
-step "game deployed at $GAME"
+# Derived after sourcing, so the recorded deployment wins over any stale default.
+TEAM_COUNT="${TEAM_COUNT:-2}"
+MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-2}"
+ROSTER=$((TEAM_COUNT * MEMBERS_PER_TEAM))
+CRISP_SERVER="${CRISP_SERVER_URL:-http://127.0.0.1:4000}"
+CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-480}"
+BALLOT_DURATION="${BALLOT_DURATION:-240}"
+TALLY_GRACE="${TALLY_GRACE:-120}"
 
-# ─── Fund the pot ───────────────────────────────────────────────────────────────────────────────
-# Entry is free, so the pot has to be seeded directly or the first round cannot pay its E3 fee.
+cast block-number --rpc-url "$RPC" >/dev/null 2>&1 || fail "no chain at $RPC — run: bun run devnet:up"
 
-step "funding the pot"
-# Mint to the *deployer*, not the game: `fund()` pulls with transferFrom and credits `pot`, whereas
-# tokens sent straight to the contract are invisible to it. The fee token is USDC-like (6 dp) with
-# a public mint on this devnet.
-FUND_AMOUNT=1000000000000 # 1,000,000 USDC
-DEPLOYER_ADDR="$(cast wallet address --private-key "$DEPLOYER_KEY")"
-
-send "mint fee tokens" "$FEE_TOKEN" "mint(address,uint256)" "$DEPLOYER_ADDR" "$FUND_AMOUNT"
-send "approve game" "$FEE_TOKEN" "approve(address,uint256)" "$GAME" "$FUND_AMOUNT"
-send "fund pot" "$GAME" "fund(uint256)" "$FUND_AMOUNT"
-
+step "game=$GAME plugin=$PLUGIN"
 POT="$(cast call "$GAME" "pot()(uint256)" --rpc-url "$RPC" 2>/dev/null)"
-[ "${POT%% *}" != "0" ] || fail "pot is still zero after funding"
+[ "${POT%% *}" != "0" ] || fail "pot is zero — the game cannot pay for a round"
 step "pot = $POT"
+
 
 # ─── Fill the lobby ─────────────────────────────────────────────────────────────────────────────
 #

@@ -30,13 +30,20 @@ if [ -z "$BLOCK" ]; then
 fi
 echo "  chain at block $BLOCK"
 
-GAME="$(grep -E '^NEXT_PUBLIC_GAME_ADDRESS=' "$ROOT/app/.env" 2>/dev/null | cut -d= -f2)"
-if [ -z "$GAME" ]; then
-  printf '\n  no game configured in app/.env — deploy one with: bun run play\n\n'
+# Read the deployment from .devnet.env rather than reverse-engineering it from app/.env, which is
+# a generated artifact and only exists when the frontend has been configured.
+STATE="$ROOT/.devnet.env"
+if [ -f "$STATE" ]; then
+  # shellcheck disable=SC1090
+  . "$STATE"
+fi
+if [ -z "${GAME:-}" ]; then
+  printf '\n  no deployment recorded in .devnet.env — deploy with: bun run play\n\n'
   exit 0
 fi
 
 bold "game $GAME"
+printf '  %-14s %s\n' "plugin" "${PLUGIN:-unknown}"
 call() { cast call "$GAME" "$1" --rpc-url "$RPC" 2>/dev/null | head -1; }
 STAGE="$(call 'stage()(uint8)')"
 case "${STAGE:-}" in

@@ -99,7 +99,7 @@ processes that transact on their own.
 | `bun run play:headless` | bootstrap only, no frontend |
 | `bun run devnet:up` / `devnet:down` | start / stop the stack (down kills only this stack) |
 | `bun run devnet:status` | what is running, and what phase the round is in |
-| `bun run devnet:round` | drive a round headlessly (`TEAM_COUNT`/`MEMBERS_PER_TEAM` to size it) |
+| `bun run devnet:round` | drive a round headlessly against the recorded deployment |
 | `bun run devnet:logs` | tail the coordination server and ciphernodes |
 | `bun run contracts:build` / `contracts:test` / `contracts:fmt` | Foundry |
 | `bun run contracts:abi` | regenerate the app's ABIs after a contract change |
@@ -108,6 +108,10 @@ processes that transact on their own.
 | `bun run plugin:build` / `plugin:test` | vendored Aragon plugin |
 | `bun run test` | contracts + plugin + encoding |
 | `bun run lint` | `forge fmt --check` + app typecheck |
+
+`play.sh` records every deployed address in `.devnet.env`, and the other scripts read it. That file
+is the single source of truth: `devnet:round` and `devnet:status` never re-derive or redeploy, which
+is what previously let them drift out of step with the deployment order.
 
 `devnet:status` is usually the fastest way to answer "why isn't this working" — most confusing
 failures are a service being down or a wallet on the wrong port, not a contract rejecting anything.

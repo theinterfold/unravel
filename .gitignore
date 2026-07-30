@@ -1,4 +1,5 @@
 
+.devnet.env
 .DS_Store
 .env
 bun.lockb
