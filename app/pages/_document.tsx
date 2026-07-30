@@ -22,7 +22,9 @@ export default function Document() {
           rel="stylesheet"
         />
       </Head>
-      <body className="bg-neutral-50">
+      {/* The ground behind every page. Light here would show through as a seam under the
+          navbar and below short pages. */}
+      <body style={{ background: "#0e1211" }}>
         <Main />
         <NextScript />
       </body>

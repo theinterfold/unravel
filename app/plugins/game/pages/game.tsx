@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAccount, useWriteContract } from "wagmi";
-import { PUB_GAME_ADDRESS } from "@/constants";
+import { PUB_GAME_ADDRESS, PUB_CHAIN_NAME } from "@/constants";
 
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 import { useGame, useRound, useCurrentRoundId, useTeams } from "../hooks/useGame";
@@ -20,7 +20,7 @@ import type { Address } from "viem";
 
 export default function GamePage() {
   const { address } = useAccount();
-  const { game, isLoading } = useGame();
+  const { game, isLoading, error } = useGame();
   const roundId = useCurrentRoundId();
   const { round } = useRound(roundId);
   const { writeContractAsync, isPending } = useWriteContract();
@@ -33,6 +33,28 @@ export default function GamePage() {
   const { outcome } = useTally(roundId, round?.settled ?? false);
   const prize = usePrize(game?.stage === Stage.Ended);
   const { sealed, markSealed } = useSealedLocally(round?.e3Id);
+
+  // A game that cannot be read is not a game that is loading. Collapsing the two leaves a wrong
+  // NEXT_PUBLIC_GAME_ADDRESS, a dead RPC and a chain with no contract at that address all showing
+  // the same spinner, which is the least diagnosable failure this app can produce.
+  if (!isLoading && !game) {
+    return (
+      <main className="un">
+        <div className="un-wrap" style={{ paddingTop: 80 }}>
+          <section className="un-panel un-stack">
+            <div className="un-label-dim">No game here</div>
+            <h2 className="un-title">Nothing is deployed at this address</h2>
+            <p className="un-note" style={{ maxWidth: "62ch" }}>
+              The app is pointed at <span className="un-mono">{PUB_GAME_ADDRESS || "(unset)"}</span> on{" "}
+              <span className="un-mono">{PUB_CHAIN_NAME}</span>, and the contract there did not answer. Either the
+              address is stale, the RPC is unreachable, or the game was deployed to a different chain.
+            </p>
+            {error && <p className="un-fine">{error.message}</p>}
+          </section>
+        </div>
+      </main>
+    );
+  }
 
   if (isLoading || !game) {
     return (

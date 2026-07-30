@@ -1046,3 +1046,401 @@
     padding: 18px 16px;
   }
 }
+
+/* ─── Landing ────────────────────────────────────────────────────────────────────────────────── */
+
+/* The front door. Same language as the game, louder — this is the one surface allowed to sell. */
+
+@keyframes un-float {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(26px, -18px, 0);
+  }
+}
+@keyframes un-orb {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.62;
+  }
+}
+@keyframes un-marquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+@keyframes un-wobble {
+  0%,
+  100% {
+    transform: rotate(-1.5deg);
+  }
+  50% {
+    transform: rotate(1.5deg);
+  }
+}
+
+.un-hero {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 34px;
+  padding: 46px 0 30px;
+  align-items: start;
+}
+@media (min-width: 1000px) {
+  .un-hero {
+    grid-template-columns: 1fr 420px;
+    gap: 48px;
+  }
+}
+
+.un-hero-head {
+  font-family: var(--un-serif);
+  font-size: clamp(44px, 8.5vw, 104px);
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  color: var(--un-fg);
+  margin: 0;
+  font-weight: 400;
+}
+/* The one piece of deliberate wonkiness in the product. It earns its place by being the only one. */
+.un-hero-mark {
+  display: inline-block;
+  background: var(--un-pistachio);
+  color: var(--un-ink);
+  padding: 2px 22px 8px;
+  border-radius: 14px;
+  transform: rotate(-1.6deg);
+  margin: 8px 0;
+}
+.un-hero-mark em {
+  font-style: italic;
+}
+
+.un-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--un-pistachio);
+  color: var(--un-ink);
+  padding: 8px 16px;
+  border-radius: var(--un-r-pill);
+  font-family: var(--un-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  animation: un-wobble 5s ease-in-out infinite;
+}
+.un-live-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--un-ink);
+  border-radius: 50%;
+  animation: un-blink 1.8s ease-in-out infinite;
+}
+
+.un-seats {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px dashed var(--un-line-2);
+  padding: 12px 18px;
+  border-radius: var(--un-r-pill);
+}
+.un-seat {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--un-line-2);
+}
+.un-seat-taken {
+  background: var(--un-pistachio);
+}
+.un-seat-next {
+  animation: un-blink 1.4s ease-in-out infinite;
+}
+
+.un-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--un-panel);
+  border-radius: var(--un-r-pill);
+  padding: 9px 16px;
+  font-family: var(--un-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--un-fg-2);
+}
+.un-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+/* The motif: an aggregate that is perfectly legible, made of individuals that are not. */
+.un-motif {
+  background: var(--un-ink);
+  border-radius: var(--un-r-surface);
+  position: relative;
+  overflow: hidden;
+  min-height: 420px;
+}
+.un-motif-dots {
+  position: absolute;
+  inset: -30px;
+  background-image:
+    radial-gradient(var(--un-sage) 0.9px, transparent 1px), radial-gradient(var(--un-sage) 0.7px, transparent 0.8px);
+  background-size:
+    9px 9px,
+    13px 13px;
+  background-position:
+    0 0,
+    4px 6px;
+  opacity: 0.28;
+  animation: un-float 26s ease-in-out infinite alternate;
+}
+.un-motif-orb {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: 300px;
+  height: 300px;
+  margin: -150px 0 0 -150px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #93a89a 0%, #93a89a 58%, transparent 72%);
+  opacity: 0.55;
+  animation: un-orb 9s ease-in-out infinite;
+}
+.un-motif-body {
+  position: relative;
+  padding: 30px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 420px;
+}
+.un-motif-line {
+  font-family: var(--un-serif);
+  font-size: clamp(24px, 3.4vw, 34px);
+  line-height: 1.15;
+  color: var(--un-fg);
+  margin: auto 0 14px;
+}
+
+.un-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 18px;
+  padding: 12px 0 34px;
+}
+.un-stat {
+  background: var(--un-panel);
+  border-radius: 16px;
+  padding: 22px 24px;
+}
+.un-stat-figure {
+  font-weight: 800;
+  font-size: 52px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--un-fg);
+  font-variant-numeric: tabular-nums;
+}
+.un-stat-accent {
+  background: var(--un-pistachio);
+  color: var(--un-ink);
+}
+.un-stat-accent .un-stat-figure {
+  color: var(--un-ink);
+}
+.un-stat-note {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--un-fg-2);
+  margin-top: 8px;
+}
+.un-stat-accent .un-stat-note {
+  color: var(--un-ink);
+  font-weight: 500;
+}
+
+.un-marquee {
+  padding: 14px 0;
+  background: var(--un-ink);
+  border-top: 1px solid var(--un-line);
+  border-bottom: 1px solid var(--un-line);
+  overflow: hidden;
+}
+.un-marquee-track {
+  display: flex;
+  gap: 44px;
+  width: max-content;
+  animation: un-marquee 46s linear infinite;
+  font-family: var(--un-serif);
+  font-size: 17px;
+  color: var(--un-sage);
+  white-space: nowrap;
+}
+
+/* The wonky cards and the drifting field are the first things to go: they are the only purely
+   decorative motion in the product. */
+@media (prefers-reduced-motion: reduce) {
+  .un-hero-mark {
+    transform: none;
+  }
+}
+
+/* ─── App chrome ─────────────────────────────────────────────────────────────────────────────── */
+
+/* The navbar and footer wrap every page, including the game, so they belong to this system rather
+   than to the Aragon starter's light neutrals. Applied by class instead of by restyling the ODS
+   tokens, so nothing else the starter renders is disturbed. */
+
+.un-nav {
+  position: sticky;
+  top: 0;
+  z-index: var(--hub-navbar-z-index, 50);
+  width: 100%;
+  background: var(--un-ink);
+  border-bottom: 1px solid var(--un-line);
+  user-select: none;
+}
+.un-nav-inner {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 14px 20px 0;
+}
+.un-nav-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.un-nav-brand {
+  font-family: var(--un-serif);
+  font-size: 23px;
+  letter-spacing: -0.01em;
+  color: var(--un-fg);
+  text-decoration: none;
+  padding-bottom: 12px;
+}
+.un-nav-brand:hover {
+  color: var(--un-pistachio);
+}
+.un-nav-tabs {
+  display: none;
+  gap: 28px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+@media (min-width: 768px) {
+  .un-nav-tabs {
+    display: flex;
+  }
+}
+
+/* Tabs read as the chain's own labels, and the selected one is the only pistachio in the chrome. */
+.un-tab {
+  display: block;
+  font-family: var(--un-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--un-dim);
+  text-decoration: none;
+  padding: 0 0 12px;
+  border-bottom: 2px solid transparent;
+}
+.un-tab:hover {
+  color: var(--un-fg-2);
+}
+.un-tab-on {
+  color: var(--un-pistachio);
+  border-bottom-color: var(--un-pistachio);
+}
+
+.un-nav-trigger {
+  border: 1px solid var(--un-line-2);
+  background: transparent;
+  color: var(--un-fg-2);
+  border-radius: var(--un-r-pill);
+  padding: 8px 14px;
+  font-family: var(--un-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+@media (min-width: 768px) {
+  .un-nav-trigger {
+    display: none;
+  }
+}
+
+.un-foot {
+  width: 100%;
+  background: var(--un-ink);
+  border-top: 1px solid var(--un-line);
+  color: var(--un-dim);
+}
+.un-foot-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 20px 28px;
+  display: grid;
+  gap: 24px;
+  align-items: end;
+}
+@media (min-width: 768px) {
+  .un-foot-inner {
+    grid-template-columns: 1fr auto;
+  }
+}
+.un-foot-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+@media (min-width: 768px) {
+  .un-foot-links {
+    align-items: flex-end;
+  }
+}
+.un-foot-links a {
+  font-family: var(--un-serif);
+  font-size: 16px;
+  color: var(--un-fg-2);
+  text-decoration: none;
+  border-bottom: 1px solid var(--un-line-2);
+}
+.un-foot-links a:hover {
+  color: var(--un-pistachio);
+  border-bottom-color: var(--un-pistachio);
+}
+.un-foot-rule {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 18px 20px;
+  border-top: 1px solid var(--un-line);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--un-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--un-dim-2);
+}

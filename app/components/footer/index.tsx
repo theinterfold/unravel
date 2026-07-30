@@ -4,12 +4,12 @@ export const Footer = () => {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="w-full border-t border-t-neutral-800 bg-neutral-50">
-      <div className="mx-auto grid w-full max-w-screen-xl grid-cols-1 items-end gap-8 px-6 pb-8 pt-12 md:grid-cols-2">
-        <div className="font-mono-label text-[11px] uppercase leading-relaxed tracking-[0.18em] text-neutral-500">
-          Public &amp; private governance for the Interfold, on Aragon OSx.
+    <footer className="un-foot">
+      <div className="un-foot-inner">
+        <div className="un-label-dim" style={{ lineHeight: 1.7, maxWidth: "44ch" }}>
+          Campaign in the open. Vote by a ballot nobody can open. Secret elimination votes on the Interfold.
         </div>
-        <ul className="em-list flex flex-col gap-1 md:items-end">
+        <ul className="un-foot-links">
           <li>
             <a href={PUB_PROJECT_URL} target="_blank" rel="noreferrer">
               {PUB_APP_NAME}
@@ -27,7 +27,7 @@ export const Footer = () => {
           </li>
         </ul>
       </div>
-      <div className="font-mono-label mx-auto flex w-full max-w-screen-xl justify-between border-t border-t-neutral-800 px-6 py-6 text-[11px] uppercase tracking-[0.12em] text-neutral-500">
+      <div className="un-foot-rule">
         <span>
           © {year} {PUB_APP_NAME}
         </span>
