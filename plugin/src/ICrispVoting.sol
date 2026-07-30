@@ -40,6 +40,10 @@ interface ICrispVoting {
     /// @param actual The provided value.
     error RatioOutOfBounds(uint256 limit, uint256 actual);
 
+    /// @notice Emitted when the census provider is updated.
+    /// @param censusProvider The contract answering `getCensus`, or the zero address to disable.
+    event CensusProviderUpdated(address censusProvider);
+
     /// @notice Emitted when the voting settings are updated.
     /// @param minProposerVotingPower The minimum voting power needed to create a proposal.
     /// @param minParticipation The minimum participation required for quorum.
@@ -112,6 +116,13 @@ interface ICrispVoting {
         address crispProgramAddress;
         bytes computeProviderParams;
         VotingSettings votingSettings;
+        /// @notice Optional contract answering `getCensus(e3Id)` for this plugin's rounds.
+        /// @dev The CRISP coordination server resolves the electorate by calling `getCensus` on the
+        ///      E3's *requester*, and the requester is this plugin — not whatever app created the
+        ///      proposal. Without a passthrough the server falls back to reconstructing eligibility
+        ///      from token transfer logs, which cannot express an app-defined electorate. Leave zero
+        ///      to keep the default behaviour.
+        address censusProvider;
     }
 
     /// @notice A struct for proposal-related information.

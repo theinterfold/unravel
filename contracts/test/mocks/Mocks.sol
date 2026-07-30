@@ -4,10 +4,7 @@ pragma solidity 0.8.29;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IInterfold} from "../../src/interfaces/IInterfold.sol";
-import {E3, IE3Program, IDecryptionVerifier} from "../../src/interfaces/IE3.sol";
-import {ICiphernodeRegistry} from "../../src/interfaces/ICiphernodeRegistry.sol";
-import {IBondingRegistry} from "../../src/interfaces/IBondingRegistry.sol";
+import {ICrispVotingPlugin} from "../../src/interfaces/ICrispVotingPlugin.sol";
 import {IImmunitySource} from "../../src/interfaces/IImmunitySource.sol";
 
 /// @notice Plain ERC20 standing in for the Interfold fee token.
@@ -19,61 +16,66 @@ contract MockFeeToken is ERC20 {
     }
 }
 
-/// @notice Minimal Interfold stub: hands out sequential E3 ids and charges a flat quote.
-/// @dev Only the surface `SurvivalGame` touches is implemented — quoting, requesting and the fee
-///      token. Everything else in `IInterfold` is irrelevant to the game's state machine, which is
-///      the point of testing against a stub: the round logic is exercised with no crypto in the
-///      loop, so a failing test means the game is wrong, not the committee.
-contract MockInterfold {
-    IERC20 public immutable feeTokenAddress;
-    uint256 public quote;
+/// @notice Stand-in for the CRISP Aragon voting plugin.
+///
+/// @dev Only the surface the game touches: create a proposal (which in production requests the E3),
+///      expose the E3 id, and return a tally. Everything about committees, proofs and decryption
+///      lives outside the contract under test — so a failing test here means the game's round logic
+///      is wrong, not that the crypto misbehaved.
+contract MockPlugin {
+    uint256 public fee;
+    uint256 public nextProposalId;
     uint256 public nextE3Id;
 
-    /// @notice Records the custom params of the last request so tests can assert the ballot shape.
-    bytes public lastCustomParams;
-    uint256[2] public lastInputWindow;
-
-    constructor(IERC20 feeToken_, uint256 quote_) {
-        feeTokenAddress = feeToken_;
-        quote = quote_;
-    }
-
-    function setQuote(uint256 quote_) external {
-        quote = quote_;
-    }
-
-    function feeToken() external view returns (IERC20) {
-        return feeTokenAddress;
-    }
-
-    function getE3Quote(IInterfold.E3RequestParams calldata) external view returns (uint256) {
-        return quote;
-    }
-
-    function request(IInterfold.E3RequestParams calldata params)
-        external
-        returns (uint256 e3Id, E3 memory e3)
-    {
-        feeTokenAddress.transferFrom(msg.sender, address(this), quote);
-
-        lastCustomParams = params.customParams;
-        lastInputWindow = params.inputWindow;
-
-        e3Id = nextE3Id++;
-        return (e3Id, e3);
-    }
-}
-
-/// @notice CRISP program stub whose tally is set directly by tests.
-contract MockCRISP {
+    mapping(uint256 => uint256) public e3IdOf;
     mapping(uint256 => uint256[]) internal tallies;
 
-    function setTally(uint256 e3Id, uint256[] calldata counts) external {
-        tallies[e3Id] = counts;
+    /// @notice Custom params of the most recent proposal, so tests can assert the ballot shape.
+    bytes public lastData;
+    uint64 public lastStartDate;
+    uint64 public lastEndDate;
+    bytes public lastMetadata;
+
+    IERC20 internal immutable feeToken;
+
+    constructor(IERC20 feeToken_, uint256 fee_) {
+        feeToken = feeToken_;
+        fee = fee_;
     }
 
-    function decodeTally(uint256 e3Id) external view returns (uint256[] memory) {
-        return tallies[e3Id];
+    function setFee(uint256 fee_) external {
+        fee = fee_;
+    }
+
+    function setTally(uint256 proposalId, uint256[] calldata counts) external {
+        tallies[proposalId] = counts;
+    }
+
+    function createProposal(
+        bytes memory metadata,
+        ICrispVotingPlugin.Action[] memory,
+        uint64 startDate,
+        uint64 endDate,
+        bytes memory data
+    ) external returns (uint256 proposalId) {
+        // The real plugin pulls its Interfold fee from the caller, so the game must have approved it.
+        feeToken.transferFrom(msg.sender, address(this), fee);
+
+        lastMetadata = metadata;
+        lastData = data;
+        lastStartDate = startDate;
+        lastEndDate = endDate;
+
+        proposalId = ++nextProposalId;
+        e3IdOf[proposalId] = nextE3Id++;
+    }
+
+    function getE3Id(uint256 proposalId) external view returns (uint256) {
+        return e3IdOf[proposalId];
+    }
+
+    function getTally(uint256 proposalId) external view returns (ICrispVotingPlugin.TallyResults memory) {
+        return ICrispVotingPlugin.TallyResults({counts: tallies[proposalId]});
     }
 }
 

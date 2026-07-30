@@ -21,6 +21,15 @@ import {E3, IE3Program} from "./IE3.sol";
 import {ICrispVoting} from "./ICrispVoting.sol";
 import {ICRISP} from "./ICRISP.sol";
 
+/// @notice Supplies the eligible voter set for an E3.
+/// @dev Implemented by whatever app owns the electorate — a game roster, an allowlisted cohort, a
+///      committee. MUST be immutable for a given `e3Id` once its round is open: the server reads it
+///      at chain head, and a census that changed mid-round would validate ballots against a
+///      different eligibility tree than the one they were proven against.
+interface ICensusProvider {
+    function getCensus(uint256 e3Id) external view returns (address[] memory);
+}
+
 /// @title CrispVoting
 /// @notice An Aragon OSx governance plugin that runs private, encrypted votes through Interfold's
 /// CRISP E3 program. Proposal creation registers an E3 request with Interfold; once the tally is
@@ -69,6 +78,9 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
     /// @notice The ABI encoded compute provider parameters
     bytes private computeProviderParams;
 
+    /// @notice Contract answering `getCensus(e3Id)` on this plugin's behalf. Zero disables it.
+    address public censusProvider;
+
     /// @notice Disables the initializers on the implementation contract to prevent
     /// it from being left uninitialized.
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -91,8 +103,38 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
         paramSet = _params.paramSet;
         crispProgramAddress = _params.crispProgramAddress;
         computeProviderParams = _params.computeProviderParams;
+        censusProvider = _params.censusProvider;
 
         _updateVotingSettings(_params.votingSettings);
+    }
+
+    /// @notice Sets the contract that answers `getCensus` for this plugin's rounds.
+    /// @param _censusProvider The census provider, or the zero address to disable.
+    function setCensusProvider(address _censusProvider) external auth(MANAGER_PERMISSION_ID) {
+        censusProvider = _censusProvider;
+        emit CensusProviderUpdated(_censusProvider);
+    }
+
+    /// @notice The eligible voter set for an E3, read by the CRISP coordination server.
+    /// @dev The server calls this on the E3's requester, which is this plugin rather than the app
+    ///      that created the proposal — so it is forwarded to a provider that actually knows the
+    ///      electorate. Returning an empty array makes the server fall back to reconstructing
+    ///      eligibility from token-holder logs, which is the correct behaviour when no provider is
+    ///      configured. Failures are swallowed for the same reason: a reverting provider should
+    ///      degrade to the default, not wedge every round.
+    /// @param _e3Id The E3 whose electorate is being resolved.
+    /// @return The eligible voters, or an empty array to use the default discovery path.
+    function getCensus(uint256 _e3Id) external view returns (address[] memory) {
+        address provider = censusProvider;
+        if (provider == address(0)) {
+            return new address[](0);
+        }
+
+        try ICensusProvider(provider).getCensus(_e3Id) returns (address[] memory census) {
+            return census;
+        } catch {
+            return new address[](0);
+        }
     }
 
     /// @inheritdoc ICrispVoting
@@ -328,7 +370,8 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
     /// @notice Get the custom proposal parameters ABI.
     /// @dev Mirrors the `_data` payload decoded in `createProposal`.
     function customProposalParamsABI() external pure returns (string memory) {
-        return "(uint256 allowFailureMap, uint256 numOptions, uint256 creditMode, uint256 credits, uint256 electorateSize)";
+        return
+            "(uint256 allowFailureMap, uint256 numOptions, uint256 creditMode, uint256 credits, uint256 electorateSize)";
     }
 
     /// @notice Get the tally result
@@ -344,6 +387,18 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
         }
 
         return proposals[_proposalId].tally;
+    }
+
+    /// @notice The E3 backing a proposal.
+    /// @dev Needed by anything addressing the round off-chain — the CRISP server and its clients key
+    ///      everything on the E3 id, not the proposal id.
+    /// @param _proposalId The proposal.
+    /// @return The E3 id.
+    function getE3Id(uint256 _proposalId) external view returns (uint256) {
+        if (!_proposalExists(_proposalId)) {
+            revert NonexistentProposal(_proposalId);
+        }
+        return proposals[_proposalId].e3Id;
     }
 
     /// @inheritdoc ICrispVoting
@@ -492,11 +547,7 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
     /// @param _parameters The stored proposal parameters.
     /// @param _totalVotes The summed tally.
     /// @return Whether quorum was reached.
-    function _quorumReached(ProposalParameters memory _parameters, uint256 _totalVotes)
-        internal
-        view
-        returns (bool)
-    {
+    function _quorumReached(ProposalParameters memory _parameters, uint256 _totalVotes) internal view returns (bool) {
         uint256 minParticipation_ = uint256(votingSettings.minParticipation);
 
         if (_parameters.creditMode == ICRISP.CreditMode.CONSTANT) {
