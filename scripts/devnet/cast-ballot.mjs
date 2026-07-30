@@ -52,9 +52,7 @@ if (Number(round.credit_mode) !== CreditMode.CONSTANT) {
 }
 const balance = BigInt(round.credits);
 
-const leaves = (await sdk.getTokenHolderHashes(e3Id)).map((h) =>
-  BigInt(h.startsWith("0x") ? h : `0x${h}`)
-);
+const leaves = (await sdk.getTokenHolderHashes(e3Id)).map((h) => BigInt(h.startsWith("0x") ? h : `0x${h}`));
 
 console.error(
   `e3 ${e3Id}: ${numOptions} options, ${leaves.length} eligible, credits=${balance}, voter=${account.address}`

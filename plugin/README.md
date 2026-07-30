@@ -18,7 +18,7 @@ The game only needs this plugin's **address and ABI**, never its source, so the 
 1. **`E3RequestParams` drops `proofAggregationEnabled`.** Upstream carries that trailing bool; the
    Interfold built from the monorepo does not have it. The whole struct is one ABI selector, so the
    extra field silently changes `request` from `0x2215c91d` to `0xf3ceba3a` and every call reverts
-   with *empty data* — no named error, nothing to diagnose from. Verified: `cast sig` on the
+   with _empty data_ — no named error, nothing to diagnose from. Verified: `cast sig` on the
    six-field struct returns `0x2215c91d`.
 
 2. **`snapshotBlock` reads the token's ERC-6372 clock**, not `block.number - 1`. `RosterToken` is

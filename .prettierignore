@@ -1,0 +1,22 @@
+# The app has its own Prettier config (with the Tailwind plugin) and its own `format` script, so it
+# is formatted from inside app/ rather than from here. Two configs formatting the same files would
+# fight over class ordering.
+app/
+
+# Generated or vendored — formatting them creates noise in every diff and, for the ABIs and build
+# output, is overwritten on the next sync.
+node_modules/
+bun.lock
+bun.lockb
+contracts/lib/
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+plugin/lib/
+plugin/out/
+plugin/cache/
+plugin/broadcast/
+plugin/vendored-tests/
+
+# Foundry owns Solidity formatting: `bun run contracts:fmt`.
+*.sol

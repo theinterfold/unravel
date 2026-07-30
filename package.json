@@ -17,6 +17,8 @@
     "contracts:fmt": "forge fmt --root contracts",
     "contracts:fmt:check": "forge fmt --check --root contracts",
     "contracts:abi": "./scripts/devnet/sync-abis.sh",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check .",
     "app:dev": "cd app && bun dev",
     "app:build": "cd app && bun run build",
     "app:lint": "cd app && bun run lint",
@@ -24,10 +26,13 @@
     "check:encoding": "cd scripts/devnet && node check-encoding.mjs",
     "setup": "cd app && bun install && cd ../scripts/devnet && bun install",
     "test": "bun run contracts:test && bun run plugin:test && bun run check:encoding",
-    "lint": "bun run contracts:fmt:check && bun run app:typecheck",
+    "lint": "bun run fmt:check && bun run contracts:fmt:check && bun run app:typecheck",
     "plugin:build": "forge build --root plugin",
     "plugin:test": "forge test --root plugin",
     "deploy:sepolia": "./scripts/deploy-sepolia.sh",
     "deploy:sepolia:dry": "./scripts/deploy-sepolia.sh --dry-run"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
   }
 }

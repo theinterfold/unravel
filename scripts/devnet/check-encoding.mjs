@@ -51,8 +51,7 @@ const check = (label, actual, expected) => {
 
 // The tally the committee returns is the coefficient-wise sum of every encoded ballot, so summing
 // encodings here reproduces exactly what `decodeTally` is handed on-chain.
-const sumEncoded = (votes) =>
-  votes.map(encodeVote).reduce((acc, v) => acc.map((x, i) => x + v[i]));
+const sumEncoded = (votes) => votes.map(encodeVote).reduce((acc, v) => acc.map((x, i) => x + v[i]));
 
 console.log("one credit, one candidate — every slot in a 4-option ballot");
 for (let k = 0; k < 4; k++) {
@@ -81,7 +80,13 @@ check("5 ballots -> counts", decodeTally(sumEncoded(ballots), roster), [0, 3, 0,
 // A tie is the case the contract has a dedicated rule for; the tally must actually report it.
 check(
   "tied ballots -> equal counts",
-  decodeTally(sumEncoded([[1, 0, 0, 0], [0, 1, 0, 0]]), roster),
+  decodeTally(
+    sumEncoded([
+      [1, 0, 0, 0],
+      [0, 1, 0, 0],
+    ]),
+    roster
+  ),
   [1, 1, 0, 0]
 );
 

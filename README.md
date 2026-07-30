@@ -17,23 +17,25 @@ the confessional replaced by an E3.
 
 A game is a lobby, then a series of rounds, then a verdict.
 
-**Lobby.** Players take a seat on a tribe. Once `minPlayers` have joined, anyone can start it — there
-is no host, and reaching the floor is an objective fact rather than a privilege. Seats still empty at
-that moment stay empty for the whole game.
+**Lobby.** Players take a seat on a tribe. Once `minPlayers` have joined, anyone can start it —
+there is no host, and reaching the floor is an objective fact rather than a privilege. Seats still
+empty at that moment stay empty for the whole game.
 
 **Rounds.** Each round removes exactly one player. Early on you vote as tribes; once the survivors
 drop to `mergeAt` the tribes dissolve and it is every player for themselves.
 
-**The verdict.** At `finalists` survivors — two, by default — eliminations stop. Everyone voted out becomes the jury, and the
-jury decides which finalist takes the pot. The people you knifed choose the winner.
+**The verdict.** At `finalists` survivors — two, by default — eliminations stop. Everyone voted out
+becomes the jury, and the jury decides which finalist takes the pot. The people you knifed choose
+the winner.
 
 ## A round, start to finish
 
-**Campaign.** Everyone talks in public — posts signed with their address, permanent, on chain. Deals,
-accusations, alliances, promises. This is where the game is actually played.
+**Campaign.** Everyone talks in public — posts signed with their address, permanent, on chain.
+Deals, accusations, alliances, promises. This is where the game is actually played.
 
 **Ballot.** You pick a name and encrypt a vote, which takes 45–90 seconds in the browser. You may
-change your mind as often as you like until the window shuts; the last ballot is the one that counts.
+change your mind as often as you like until the window shuts; the last ballot is the one that
+counts.
 
 **Tally.** The counts come back, someone goes home, the next round opens.
 
@@ -73,8 +75,8 @@ it — and everyone knows this about everyone else. That is the engine: the publ
 reputation with no enforcement behind it, and reputation still matters because the people you betray
 are the ones who eventually pick the winner.
 
-Being eliminated is not leaving. It is changing jobs, from playing to judging. How you treated people
-on the way up decides whether they hand you the pot on the way out.
+Being eliminated is not leaving. It is changing jobs, from playing to judging. How you treated
+people on the way up decides whether they hand you the pot on the way out.
 
 ## What that rests on
 
@@ -98,8 +100,8 @@ Both were found by reading the CRISP implementation, and both are enforced in th
   options. The on-chain CRISP program only checks `numOptions >= 2`, so exceeding the upper bound
   fails at _proving_ time — the contracts therefore reject it at round-open instead.
 
-  This is why the game has teams. Applying the bound **twice** — at most 10 teams, at most 10 members
-  each — supports 100 players while every ballot stays inside it. The constraint became the
+  This is why the game has teams. Applying the bound **twice** — at most 10 teams, at most 10
+  members each — supports 100 players while every ballot stays inside it. The constraint became the
   structure rather than the ceiling.
 
 - **Eligibility is decided by the CRISP coordination server**, not the chain. By default it is
@@ -121,8 +123,8 @@ them to the CRISP program. The game only pins who may vote and on whom, then rea
 
 ## Playing it locally
 
-One command brings up a CRISP devnet, deploys the game, funds the pot, configures the app and
-serves the frontend:
+One command brings up a CRISP devnet, deploys the game, funds the pot, configures the app and serves
+the frontend:
 
 ```bash
 bun run setup   # first time only — installs app + harness deps
@@ -133,8 +135,8 @@ That deploys everything in the order the dependencies force: LIFE/JURY badges �
 plugin → game → point the plugin's `censusProvider` back at the game. The plugin needs the LIFE
 address at initialization, and the game needs the plugin's, so the order is not optional.
 
-The DAO is deployed directly rather than through Aragon's `DAOFactory`/`PluginRepoFactory`: those are
-framework contracts that only exist on public networks, and their job is publishing a versioned
+The DAO is deployed directly rather than through Aragon's `DAOFactory`/`PluginRepoFactory`: those
+are framework contracts that only exist on public networks, and their job is publishing a versioned
 plugin to a repo. Local testing needs a working plugin, not a published one.
 
 The chain runs on **8545**, which is what MetaMask's built-in "Localhost 8545" network already
@@ -176,8 +178,8 @@ not a hang. Windows default to 900s each so there is time to drive several walle
 
 Two devnets cannot safely share a machine: CRISP's own `dev.sh` tears down with `pkill -f anvil`,
 which matches by process name and kills every chain running. Run beside an existing devnet with
-`ANVIL_PORT=8546 ./scripts/play.sh` — every other port shifts with it — but note that only
-protects other stacks from this one, not the reverse.
+`ANVIL_PORT=8546 ./scripts/play.sh` — every other port shifts with it — but note that only protects
+other stacks from this one, not the reverse.
 
 ## Sepolia
 
@@ -228,17 +230,17 @@ are fixed by the time settlement runs, so the draw is deterministic and verifiab
 
 Immunity is optional and disabled by default (`SurvivalGame.setImmunitySource`). When enabled,
 `PublicImmunityVote` runs a **public, attributable** election for who cannot be eliminated, while
-the elimination itself stays private. Each round you protect someone on the record and knife
-someone in secret. The gap between your two ballots is the game.
+the elimination itself stays private. Each round you protect someone on the record and knife someone
+in secret. The gap between your two ballots is the game.
 
-A tie protects nobody — handing out immunity that no majority voted for is worse than an
-indecisive round.
+A tie protects nobody — handing out immunity that no majority voted for is worse than an indecisive
+round.
 
 Two things this is deliberately _not_:
 
-- **Not private.** A second secret ballot would cost another E3 per round and put _less_
-  information into the game. It also cannot share the elimination ballot: a 10-roster would need 20
-  options to distinguish "protect X" from "eliminate Y", which `MAX_OPTIONS` forbids.
+- **Not private.** A second secret ballot would cost another E3 per round and put _less_ information
+  into the game. It also cannot share the elimination ballot: a 10-roster would need 20 options to
+  distinguish "protect X" from "eliminate Y", which `MAX_OPTIONS` forbids.
 - **Not an Aragon TokenVoting plugin.** TokenVoting decides Yes/No/Abstain on a proposal; immunity
   is an N-way election, which would need one proposal per candidate per round. `PublicImmunityVote`
   votes directly against the same `ERC20Votes` roster token a plugin would have used.
@@ -278,7 +280,8 @@ that was also running another proving workload. It moves with hardware, committe
 ## Trust note
 
 The CRISP coordination server owns `setMerkleRoot` on the E3 program, so it decides who may vote.
-That is acceptable for a game, but it is not a trustless property and should not be presented as one.
+That is acceptable for a game, but it is not a trustless property and should not be presented as
+one.
 
 ## Interfold ships two `E3RequestParams` shapes
 
