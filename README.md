@@ -130,9 +130,13 @@ protects other stacks from this one, not the reverse.
 ## Sepolia
 
 ```bash
+cp .env.example .env                  # fill in PRIVATE_KEY (gitignored)
 bun run deploy:sepolia:dry            # simulate first
-PRIVATE_KEY=0x... bun run deploy:sepolia
+bun run deploy:sepolia
 ```
+
+Anything already in your environment beats `.env`, so `RPC_URL=... bun run deploy:sepolia` still
+overrides it.
 
 Interfold, CRISP program, fee token and the hosted coordination server default to the
 the-interfold-governance Sepolia values, so only a key and (optionally) an RPC are needed. Addresses
@@ -142,9 +146,11 @@ The script claims fee tokens from the Interfold faucet and funds the pot itself 
 fee comes out of the pot, so a game with an empty pot cannot open a round at all. If the faucet
 declines (it reverts once you already hold enough), it prints the manual `approve`/`fund` calls.
 
-The one thing to plan for: the `campaignDuration` floor is **not** the ~290s measured locally. A
-shared public committee is slower and less predictable, so the defaults here are hours rather than
-minutes. A window that is too short leaves the ballot dead for its whole duration.
+The Sepolia committee is three nodes on a remote server and forms faster than the local five-node
+setup that produced the ~290s figure, so the campaign window defaults to 15 minutes rather than
+hours. It still has to outlast sortition plus the DKG — the ballot opens the moment it ends, and a
+window that is too short leaves the ballot dead for its whole duration. Worth measuring on the first
+round instead of trusting the default.
 
 ### Two things worth knowing before reading the code
 

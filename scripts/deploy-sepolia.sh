@@ -10,15 +10,42 @@
 #
 #   * The pot is funded with real testnet fee tokens, claimed from the Interfold faucet. Every
 #     round's E3 fee comes out of the pot, so an unfunded game cannot open a round at all.
-#   * `CAMPAIGN_DURATION` has a floor set by committee sortition and the DKG, and on a shared public
-#     committee that floor is not the ~290s measured on a local devnet. The default here is
-#     deliberately generous.
+#   * `CAMPAIGN_DURATION` still has a floor set by committee sortition and the DKG, but the Sepolia
+#     committee is small and remote and forms faster than the local five-node setup. Measure it on
+#     the first round rather than trusting the default.
+#
+# PRIVATE_KEY and any overrides can live in a gitignored .env at the repo root.
 #
 #   ./scripts/deploy-sepolia.sh              # deploy everything
 #   ./scripts/deploy-sepolia.sh --dry-run    # simulate, broadcast nothing
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# ─── .env ───────────────────────────────────────────────────────────────────────────────────────
+#
+# Loads PRIVATE_KEY and any overrides from a gitignored .env so the key does not have to be typed
+# (or land in shell history) every run.
+#
+# Only sets variables that are not already in the environment, so precedence stays
+# explicit > .env > built-in default. Sourcing the file outright would invert that and make an
+# inline `RPC_URL=... ./deploy-sepolia.sh` silently do nothing.
+ENV_FILE="${ENV_FILE:-$ROOT/.env}"
+if [ -f "$ENV_FILE" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|'#'*) continue ;; esac
+    key="${line%%=*}"
+    val="${line#*=}"
+    # Tolerate `export KEY=`, surrounding quotes, and trailing comments.
+    key="${key#export }"
+    key="$(echo "$key" | tr -d '[:space:]')"
+    val="${val%%#*}"
+    val="$(echo "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
+    [ -n "$key" ] || continue
+    eval "current=\${$key:-}"
+    [ -n "$current" ] || export "$key=$val"
+  done < "$ENV_FILE"
+fi
 
 # ─── Sepolia defaults (from the-interfold-governance/contracts/.env.example) ─────────────────────
 
@@ -35,15 +62,22 @@ COMMITTEE_SIZE="${COMMITTEE_SIZE:-0}"
 PARAM_SET="${PARAM_SET:-0}"
 COMPUTE_PROVIDER_PARAMS="${COMPUTE_PROVIDER_PARAMS:-0x7b226e616d65223a225249534330222c22706172616c6c656c223a66616c73652c2262617463685f73697a65223a347d}"
 
-# Round shape. Longer than local: a public committee is slower and less predictable than five
-# ciphernodes on one machine, and players need real time to campaign.
+# Round shape.
+#
+# The Sepolia committee is three nodes on a remote server and forms considerably faster than the five
+# local ciphernodes that produced the ~290s figure, so the campaign window does not need to be hours.
+# It still has to comfortably exceed sortition plus the DKG, because the ballot opens the moment it
+# ends and nothing can be encrypted before the committee key exists.
+#
+# The ballot window is sized for people, not for the committee: each ballot is 45-90s of proof
+# generation in the browser, and a full roster proving sequentially is the real constraint.
 TEAM_COUNT="${TEAM_COUNT:-4}"
 MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-3}"
 MERGE_AT="${MERGE_AT:-6}"
 FINALISTS="${FINALISTS:-2}"
-CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-72000}" # 20h
-BALLOT_DURATION="${BALLOT_DURATION:-10800}"     # 3h
-TALLY_GRACE="${TALLY_GRACE:-3600}"              # 1h
+CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-900}" # 15m
+BALLOT_DURATION="${BALLOT_DURATION:-1800}"    # 30m
+TALLY_GRACE="${TALLY_GRACE:-600}"             # 10m
 MAX_MISSED_CHECKINS="${MAX_MISSED_CHECKINS:-2}"
 ENTRY_FEE="${ENTRY_FEE:-0}"
 
@@ -65,8 +99,11 @@ for bin in cast forge; do
 done
 
 [ -n "${PRIVATE_KEY:-}" ] || fail "PRIVATE_KEY is not set.
-       Use a throwaway deployer key. This script broadcasts real transactions:
-         PRIVATE_KEY=0x... ./scripts/deploy-sepolia.sh"
+       Put it in $ENV_FILE (gitignored):
+         cp .env.example .env    # then fill in PRIVATE_KEY
+       or pass it inline:
+         PRIVATE_KEY=0x... ./scripts/deploy-sepolia.sh
+       Use a throwaway deployer key — this script broadcasts real transactions."
 
 DEPLOYER="$(cast wallet address --private-key "$PRIVATE_KEY")"
 CHAIN_ID="$(cast chain-id --rpc-url "$RPC" 2>/dev/null || echo '')"
