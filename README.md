@@ -1,10 +1,11 @@
 # UNRAVEL
 
-A social survival game whose eliminations are decided by **secret ballot**, built on Interfold's
+A social survival game whose eliminations run through Interfold's
 [CRISP](https://blog.theinterfold.com/crisp-private-voting-secret-ballot-fhe-zkp-mpc/) protocol.
 
-Up to a hundred players in teams. Each round: campaign in public, vote in private, one player goes
-home. The last two face a jury of everyone they eliminated.
+Players split into tribes and share one pot. Every round the group votes somebody out. The last two
+are judged by everyone they eliminated. It is _Survivor_ — alliances, campaigning, betrayal — with
+the confessional replaced by an E3.
 
 ```
    CAMPAIGN (public)  ──▶  BALLOT (encrypted)  ──▶  TALLY (counts only)
@@ -12,28 +13,78 @@ home. The last two face a jury of everyone they eliminated.
    promises on record      re-votes allowed         nobody learns who cast what
 ```
 
-An elimination takes **two ballots**, and both are secret:
+## The arc of a game
 
-| Round | Who votes | Options | Outcome |
-| --- | --- | --- | --- |
-| **Tribal** | everyone alive | the surviving teams | one team is sent to council |
-| **Council** | that team, alone | that team's members | one member eliminated |
+A game is a lobby, then a series of rounds, then a verdict.
 
-Confining the council vote to the condemned team is what makes the two stages mean something. If
+**Lobby.** Players take a seat on a tribe. Once `minPlayers` have joined, anyone can start it — there
+is no host, and reaching the floor is an objective fact rather than a privilege. Seats still empty at
+that moment stay empty for the whole game.
+
+**Rounds.** Each round removes exactly one player. Early on you vote as tribes; once the survivors
+drop to `mergeAt` the tribes dissolve and it is every player for themselves.
+
+**The verdict.** At `finalists` survivors — two, by default — eliminations stop. Everyone voted out becomes the jury, and the
+jury decides which finalist takes the pot. The people you knifed choose the winner.
+
+## A round, start to finish
+
+**Campaign.** Everyone talks in public — posts signed with their address, permanent, on chain. Deals,
+accusations, alliances, promises. This is where the game is actually played.
+
+**Ballot.** You pick a name and encrypt a vote, which takes 45–90 seconds in the browser. You may
+change your mind as often as you like until the window shuts; the last ballot is the one that counts.
+
+**Tally.** The counts come back, someone goes home, the next round opens.
+
+The clock is the same for everyone and does not wait. Miss the window and you simply did not vote.
+
+## The four kinds of round
+
+| Round       | Who votes         | Options              | Outcome                      |
+| ----------- | ----------------- | -------------------- | ---------------------------- |
+| **Tribal**  | everyone alive    | the surviving tribes | one tribe is sent to council |
+| **Council** | that tribe, alone | that tribe's members | one member eliminated        |
+| **Solo**    | everyone alive    | the survivors        | one player eliminated        |
+| **Jury**    | the eliminated    | the finalists        | the winner takes the pot     |
+
+In a tribal round you are choosing who has to _bleed_, not who dies. Council is the cruel one: three
+people who are probably allies have to knife one of each other, alone, while the rest of the game
+watches and cannot help.
+
+Confining the council vote to the condemned tribe is what makes the two stages mean something. If
 everyone voted in both, the same majority would just pick the victim directly and the tribal round
 would be theatre. It also doubles the E3s per elimination.
 
-Teams dissolve once few enough survive to fit on one ballot, after which everyone votes directly.
+## Two ways to die
 
-## Why secret ballots make this a game
+**Voted out.** The obvious one.
 
-Three CRISP properties do work that a TV production team normally has to do by hand:
+**Forfeit.** Every round you must check in — one tap, no proof, no cost. Miss more than
+`maxMissedCheckIns` in a row — three misses, on the defaults — and you are eliminated. It is the
+stupid death, and it is the most common one: not outplayed, just absent.
 
-| Property | Mechanic |
-| --- | --- |
+## What makes it a game
+
+Everything you say is attributable and permanent. Everything you do is not.
+
+A promise therefore costs nothing to make and nothing to break, and nobody can ever prove you broke
+it — and everyone knows this about everyone else. That is the engine: the public layer is pure
+reputation with no enforcement behind it, and reputation still matters because the people you betray
+are the ones who eventually pick the winner.
+
+Being eliminated is not leaving. It is changing jobs, from playing to judging. How you treated people
+on the way up decides whether they hand you the pot on the way out.
+
+## What that rests on
+
+Three CRISP properties, each doing work a TV production team normally does by hand:
+
+| Property                      | Mechanic                                                                      |
+| ----------------------------- | ----------------------------------------------------------------------------- |
 | Only aggregate counts decrypt | Campaign for one outcome in public, vote for another in private — unprovably. |
-| Re-voting, last vote wins | A vote promised at hour 2 is worthless at hour 23. |
-| Mask votes | You cannot prove which ciphertext was yours, so votes cannot be bought. |
+| Re-voting, last vote wins     | A vote promised at hour 2 is worthless at hour 23.                            |
+| Mask votes                    | You cannot prove which ciphertext was yours, so votes cannot be bought.       |
 
 That last one is why a naive on-chain version of this game does not work: without receipt-freeness,
 a coordinated bloc simply buys the game. Coercion resistance is not a privacy garnish here — it is
@@ -45,11 +96,12 @@ Both were found by reading the CRISP implementation, and both are enforced in th
 
 - **`MAX_OPTIONS = 10`** in the Noir circuit (`circuits/lib/src/constants.nr`). At most ten ballot
   options. The on-chain CRISP program only checks `numOptions >= 2`, so exceeding the upper bound
-  fails at *proving* time — the contracts therefore reject it at round-open instead.
+  fails at _proving_ time — the contracts therefore reject it at round-open instead.
 
   This is why the game has teams. Applying the bound **twice** — at most 10 teams, at most 10 members
   each — supports 100 players while every ballot stays inside it. The constraint became the
   structure rather than the ceiling.
+
 - **Eligibility is decided by the CRISP coordination server**, not the chain. By default it is
   reconstructed from Etherscan transfer/delegation logs. `SurvivalGame` implements
   `getCensus(uint256 e3Id)` so the server reads the roster directly instead — exact, and it works
@@ -57,12 +109,12 @@ Both were found by reading the CRISP implementation, and both are enforced in th
 
 ## Contracts
 
-| Contract | Role |
-| --- | --- |
-| `RosterToken` | Soulbound `ERC20Votes` badge, one unit per member. Deployed twice: LIFE (survivors) and JURY (the eliminated). Auto-delegates on mint; timestamp clock. |
-| `SurvivalGame` | The state machine: lobby and teams, tribal/council/individual/jury rounds, tally settlement, prize pot. |
-| `IImmunitySource` | Optional hook for a *public* immunity vote (see below). |
-| `plugin/CrispVoting` | Vendored Aragon plugin. Creating a proposal on it requests the round's E3. Separate Foundry root — see `plugin/README.md`. |
+| Contract             | Role                                                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RosterToken`        | Soulbound `ERC20Votes` badge, one unit per member. Deployed twice: LIFE (survivors) and JURY (the eliminated). Auto-delegates on mint; timestamp clock. |
+| `SurvivalGame`       | The state machine: lobby and teams, tribal/council/individual/jury rounds, tally settlement, prize pot.                                                 |
+| `IImmunitySource`    | Optional hook for a _public_ immunity vote (see below).                                                                                                 |
+| `plugin/CrispVoting` | Vendored Aragon plugin. Creating a proposal on it requests the round's E3. Separate Foundry root — see `plugin/README.md`.                              |
 
 Ballots never touch either contract: voters submit to the CRISP coordination server, which publishes
 them to the CRISP program. The game only pins who may vote and on whom, then reads the tally.
@@ -92,24 +144,24 @@ processes that transact on their own.
 
 ### Commands
 
-| | |
-| --- | --- |
-| `bun run play` | full bootstrap, then serve the app |
-| `bun run play:reuse` | keep the running devnet, deploy a fresh game |
-| `bun run play:headless` | bootstrap only, no frontend |
-| `bun run devnet:up` / `devnet:down` | start / stop the stack (down kills only this stack) |
-| `bun run devnet:status` | what is running, and what phase the round is in |
-| `bun run devnet:round` | drive a round headlessly against the recorded deployment |
-| `bun run devnet:logs` | tail the coordination server and ciphernodes |
-| `bun run contracts:build` / `contracts:test` / `contracts:fmt` | Foundry |
-| `bun run contracts:abi` | regenerate the app's ABIs after a contract change |
-| `bun run app:dev` / `app:build` / `app:typecheck` | frontend |
-| `bun run check:encoding` | verify the ballot encoding round-trips |
-| `bun run plugin:build` / `plugin:test` | vendored Aragon plugin |
-| `bun run test` | contracts + plugin + encoding |
-| `bun run lint` | `forge fmt --check` + app typecheck |
-| `bun run deploy:sepolia:dry` | rehearse the Sepolia deploy on a local fork, broadcast nothing |
-| `bun run deploy:sepolia` | deploy to Sepolia (needs `PRIVATE_KEY`) |
+|                                                                |                                                                |
+| -------------------------------------------------------------- | -------------------------------------------------------------- |
+| `bun run play`                                                 | full bootstrap, then serve the app                             |
+| `bun run play:reuse`                                           | keep the running devnet, deploy a fresh game                   |
+| `bun run play:headless`                                        | bootstrap only, no frontend                                    |
+| `bun run devnet:up` / `devnet:down`                            | start / stop the stack (down kills only this stack)            |
+| `bun run devnet:status`                                        | what is running, and what phase the round is in                |
+| `bun run devnet:round`                                         | drive a round headlessly against the recorded deployment       |
+| `bun run devnet:logs`                                          | tail the coordination server and ciphernodes                   |
+| `bun run contracts:build` / `contracts:test` / `contracts:fmt` | Foundry                                                        |
+| `bun run contracts:abi`                                        | regenerate the app's ABIs after a contract change              |
+| `bun run app:dev` / `app:build` / `app:typecheck`              | frontend                                                       |
+| `bun run check:encoding`                                       | verify the ballot encoding round-trips                         |
+| `bun run plugin:build` / `plugin:test`                         | vendored Aragon plugin                                         |
+| `bun run test`                                                 | contracts + plugin + encoding                                  |
+| `bun run lint`                                                 | `forge fmt --check` + app typecheck                            |
+| `bun run deploy:sepolia:dry`                                   | rehearse the Sepolia deploy on a local fork, broadcast nothing |
+| `bun run deploy:sepolia`                                       | deploy to Sepolia (needs `PRIVATE_KEY`)                        |
 
 `play.sh` records every deployed address in `.devnet.env`, and the other scripts read it. That file
 is the single source of truth: `devnet:round` and `devnet:status` never re-derive or redeploy, which
@@ -141,7 +193,7 @@ overrides it.
 The dry run forks Sepolia into a local anvil (port 8555, override with `FORK_PORT`) and deploys
 against that for real, rather than running each `forge script` without `--broadcast`. Unbroadcast
 simulation cannot work here: the four steps feed addresses to each other, but nothing persists
-between them, so every step re-simulates from the same deployer nonce and predicts the *same*
+between them, so every step re-simulates from the same deployer nonce and predicts the _same_
 addresses — the game then calls `transferOwnership` on a LIFE token that does not exist. Forking
 keeps state, so the rehearsal exercises the real Interfold bytecode, real fee-token decimals, the
 faucet, and finally fills a lobby and opens a round. That last step is the point: it is where an
@@ -182,9 +234,9 @@ someone in secret. The gap between your two ballots is the game.
 A tie protects nobody — handing out immunity that no majority voted for is worse than an
 indecisive round.
 
-Two things this is deliberately *not*:
+Two things this is deliberately _not_:
 
-- **Not private.** A second secret ballot would cost another E3 per round and put *less*
+- **Not private.** A second secret ballot would cost another E3 per round and put _less_
   information into the game. It also cannot share the elimination ballot: a 10-roster would need 20
   options to distinguish "protect X" from "eliminate Y", which `MAX_OPTIONS` forbids.
 - **Not an Aragon TokenVoting plugin.** TokenVoting decides Yes/No/Abstain on a proposal; immunity
@@ -199,14 +251,14 @@ path — which is the point: the state machine stays simple and the treasury gov
 
 ## Status
 
-| | |
-| --- | --- |
-| Contracts + tests | done (61 tests) |
-| Ballot encoding | verified — `check-encoding.mjs`, 13 checks |
-| CRISP census hook | **verified live** — the server reads `getCensus` and builds the eligibility tree from it |
-| Committee forms and publishes a key | verified live, ~290s |
-| Encrypted ballots accepted on-chain | verified live |
-| Decrypted tally → a real elimination | **not yet observed** |
+|                                      |                                                                                          |
+| ------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Contracts + tests                    | done (61 tests)                                                                          |
+| Ballot encoding                      | verified — `check-encoding.mjs`, 13 checks                                               |
+| CRISP census hook                    | **verified live** — the server reads `getCensus` and builds the eligibility tree from it |
+| Committee forms and publishes a key  | verified live, ~290s                                                                     |
+| Encrypted ballots accepted on-chain  | verified live                                                                            |
+| Decrypted tally → a real elimination | **not yet observed**                                                                     |
 
 Everything up to and including `settleRound` executing on a real tally read has run against a live
 devnet. What has not been seen is a round where someone is actually voted out: on the first round
@@ -228,12 +280,7 @@ that was also running another proving workload. It moves with hardware, committe
 The CRISP coordination server owns `setMerkleRoot` on the E3 program, so it decides who may vote.
 That is acceptable for a game, but it is not a trustless property and should not be presented as one.
 
-## License
-
-LGPL-3.0-only. Interfold interface files under `contracts/src/interfaces/` retain their upstream
-license headers.
-
-### Interfold ships two `E3RequestParams` shapes
+## Interfold ships two `E3RequestParams` shapes
 
 The Interfold built from the monorepo takes six fields. The Sepolia deployment at
 `0x13fA9Ecff929b4C86a2FCA4AEE91572EDee34486` is older and takes seven, with a trailing
@@ -246,3 +293,8 @@ set at deploy time is one more thing to get wrong, and getting it wrong reproduc
 undiagnosable revert the probe exists to prevent. `getE3Quote` is `view`, so probing cannot touch
 state, and `request` is called low-level because the returned `E3` struct differs between the two
 versions too — only `e3Id`, its first return word in both, is read.
+
+## License
+
+LGPL-3.0-only. Interfold interface files under `contracts/src/interfaces/` retain their upstream
+license headers.
