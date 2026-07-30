@@ -64,7 +64,9 @@ contract DeployGame is Script {
     ///
     ///      Both `TEAM_COUNT` and `MEMBERS_PER_TEAM` are ballot option counts, so both are capped at
     ///      10 by the CRISP circuit — that is what lets 10x10 support 100 players while every ballot
-    ///      stays provable. `CAMPAIGN_DURATION` has a floor set by the network: the ballot window
+    ///      stays provable. `MIN_PLAYERS` is the floor the lobby must reach before anyone can start;
+    ///      it defaults well below a full lobby, because waiting for every seat makes the game
+    ///      hostage to the slowest joiner. Set it to TEAM_COUNT * MEMBERS_PER_TEAM to require all. `CAMPAIGN_DURATION` has a floor set by the network: the ballot window
     ///      opens when it ends, and committee sortition plus the DKG have to fit inside it (~290s
     ///      measured on a local devnet).
     function _config() internal view returns (SurvivalGame.Config memory) {
@@ -74,6 +76,7 @@ contract DeployGame is Script {
             tallyGrace: uint64(vm.envOr("TALLY_GRACE", uint256(1 hours))),
             teamCount: uint8(vm.envOr("TEAM_COUNT", uint256(4))),
             membersPerTeam: uint8(vm.envOr("MEMBERS_PER_TEAM", uint256(3))),
+            minPlayers: uint8(vm.envOr("MIN_PLAYERS", uint256(4))),
             mergeAt: uint8(vm.envOr("MERGE_AT", uint256(6))),
             finalists: uint8(vm.envOr("FINALISTS", uint256(2))),
             maxMissedCheckIns: uint8(vm.envOr("MAX_MISSED_CHECKINS", uint256(2))),

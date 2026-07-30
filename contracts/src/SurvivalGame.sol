@@ -78,6 +78,9 @@ contract SurvivalGame is Ownable {
         uint8 teamCount;
         /// @notice Members per team. Must be in 1..=MAX_BALLOT_OPTIONS.
         uint8 membersPerTeam;
+        /// @notice Players needed before the game may start. Must be in (finalists, teamCount *
+        /// membersPerTeam]. Set it equal to the full lobby to require every seat.
+        uint8 minPlayers;
         /// @notice Survivor count at which teams dissolve. Must be <= MAX_BALLOT_OPTIONS.
         uint8 mergeAt;
         /// @notice Survivors left when eliminations stop and the jury votes. Must be >= 2.
@@ -217,6 +220,10 @@ contract SurvivalGame is Ownable {
                 || cfg.mergeAt > MAX_BALLOT_OPTIONS || cfg.mergeAt < cfg.finalists
                 || cfg.campaignDuration == 0 || cfg.ballotDuration == 0
                 || uint256(cfg.teamCount) * uint256(cfg.membersPerTeam) <= cfg.finalists
+                // A game that starts already over is not a game, and the first round needs at least
+                // two names on the ballot however the players happen to be spread across teams.
+                || cfg.minPlayers <= cfg.finalists
+                || uint256(cfg.minPlayers) > uint256(cfg.teamCount) * uint256(cfg.membersPerTeam)
         ) revert InvalidConfig();
 
         plugin = params.plugin;
@@ -252,13 +259,24 @@ contract SurvivalGame is Ownable {
         emit PlayerJoined(msg.sender, team, fee);
     }
 
-    /// @notice Starts the game once every team is full, and opens the first round.
-    /// @dev Permissionless: a full lobby is an objective condition, and gating the start would let a
-    ///      privileged caller stall a funded game indefinitely.
+    /// @notice Starts the game once `minPlayers` have joined, and opens the first round.
+    ///
+    /// @dev Permissionless: a lobby that has reached its floor is an objective condition, and gating
+    ///      the start would let a privileged caller stall a funded game indefinitely.
+    ///
+    ///      Waiting for every seat is the wrong default — it makes the game hostage to the slowest
+    ///      joiner, and a lobby that never fills never plays. `minPlayers` is the floor; anyone may
+    ///      start at or above it, and seats stay open until someone does. Set `minPlayers` to the
+    ///      full lobby to restore the old behaviour.
+    ///
+    ///      An under-full lobby is safe for every round kind because the shape is derived, never
+    ///      assumed: `_nextKind` falls back to an individual round when fewer than two teams have
+    ///      anyone alive, and a condemned team of one is eliminated without a council ballot. Both
+    ///      paths already existed to handle attrition; starting small only reaches them sooner.
     function startGame() external {
         if (stage != Stage.Lobby) revert WrongStage(Stage.Lobby, stage);
-        uint256 need = uint256(config.teamCount) * uint256(config.membersPerTeam);
-        if (alive.length != need) revert LobbyIncomplete(alive.length, need);
+        uint256 need = config.minPlayers;
+        if (alive.length < need) revert LobbyIncomplete(alive.length, need);
 
         stage = Stage.Playing;
         emit GameStarted(alive.length, config.teamCount, pot);

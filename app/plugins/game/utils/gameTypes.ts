@@ -37,6 +37,8 @@ export type GameConfig = {
   tallyGrace: bigint;
   teamCount: number;
   membersPerTeam: number;
+  /// Players needed before anyone may start. Below the full lobby by default.
+  minPlayers: number;
   mergeAt: number;
   finalists: number;
   maxMissedCheckIns: number;

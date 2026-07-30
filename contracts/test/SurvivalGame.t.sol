@@ -90,12 +90,71 @@ contract SurvivalGameTest is Test {
                 tallyGrace: GRACE,
                 teamCount: teams,
                 membersPerTeam: perTeam,
+                // Existing tests all assume a full lobby is required. Early-start behaviour is
+                // covered separately via `_paramsWithMin`.
+                minPlayers: teams * perTeam,
                 mergeAt: mergeAt,
                 finalists: finalists,
                 maxMissedCheckIns: maxMissed,
                 entryFee: entryFee
             })
         });
+    }
+
+    /// @dev Redeploys the game with a lobby floor, re-minting the tokens it owns.
+    function _deployWithMin(uint8 teams, uint8 perTeam, uint8 mergeAt, uint8 finalists, uint8 minPlayers)
+        internal
+    {
+        vm.startPrank(owner);
+        life = new RosterToken("Life", "LIFE", owner);
+        jury = new RosterToken("Jury", "JURY", owner);
+        SurvivalGame.InitParams memory p = _paramsWithMin(teams, perTeam, mergeAt, finalists, minPlayers);
+        p.lifeToken = life;
+        p.juryToken = jury;
+        game = new SurvivalGame(p);
+        life.transferOwnership(address(game));
+        jury.transferOwnership(address(game));
+        vm.stopPrank();
+
+        // These games have no entry fee, so nothing flows into the pot from joining — and every
+        // round's E3 fee is paid from the pot. Fund it directly.
+        fee.mint(owner, FEE * 10);
+        vm.startPrank(owner);
+        fee.approve(address(game), FEE * 10);
+        game.fund(FEE * 10);
+        vm.stopPrank();
+
+        delete players;
+        for (uint256 i; i < uint256(teams) * uint256(perTeam); ++i) {
+            players.push(address(uint160(0x1000 + i)));
+        }
+    }
+
+    /// @dev `_params` with an explicit lobby floor, for the early-start tests.
+    function _paramsWithMin(uint8 teams, uint8 perTeam, uint8 mergeAt, uint8 finalists, uint8 minPlayers)
+        internal
+        view
+        returns (SurvivalGame.InitParams memory)
+    {
+        SurvivalGame.InitParams memory params = _params(teams, perTeam, mergeAt, finalists, 0, 0);
+        params.config.minPlayers = minPlayers;
+        return params;
+    }
+
+    /// @dev Seats `count` players, spreading them across teams the way `_fillLobby` would.
+    function _seat(uint256 count, uint8 perTeam) internal {
+        for (uint256 i; i < count; ++i) {
+            vm.prank(players[i]);
+            game.join(uint8(i / perTeam) + 1);
+        }
+    }
+
+    /// @dev Seats `count` players all onto one team, to exercise the single-team start.
+    function _seatOneTeam(uint256 count, uint8 team) internal {
+        for (uint256 i; i < count; ++i) {
+            vm.prank(players[i]);
+            game.join(team);
+        }
     }
 
     /// @dev Fills every team in order: player i joins team (i / perTeam) + 1.
@@ -185,6 +244,101 @@ contract SurvivalGameTest is Test {
         vm.expectRevert(abi.encodeWithSelector(SurvivalGame.TeamFull.selector, uint8(1)));
         game.join(1);
         vm.stopPrank();
+    }
+
+    // ─── Starting under-full ─────────────────────────────────────────────────────────────────
+
+    /// @dev The point of `minPlayers`: a lobby that has reached its floor plays, rather than being
+    ///      held hostage by whoever has not shown up.
+    function test_startGame_atTheFloorWithEmptySeats() public {
+        _deployWithMin(4, 3, 6, 2, 5);
+        _seat(5, 3);
+
+        game.startGame();
+
+        assertEq(uint8(game.stage()), uint8(SurvivalGame.Stage.Playing));
+        assertEq(game.aliveCount(), 5);
+        assertEq(game.roundCount(), 1);
+    }
+
+    function test_startGame_belowTheFloorReverts() public {
+        _deployWithMin(4, 3, 6, 2, 5);
+        _seat(4, 3);
+
+        vm.expectRevert(abi.encodeWithSelector(SurvivalGame.LobbyIncomplete.selector, 4, 5));
+        game.startGame();
+    }
+
+    /// @dev Seats stay open until someone starts, so joining above the floor is still allowed.
+    function test_startGame_aboveTheFloorIsAllowed() public {
+        _deployWithMin(4, 3, 6, 2, 5);
+        _seat(7, 3);
+
+        game.startGame();
+
+        assertEq(game.aliveCount(), 7);
+    }
+
+    /// @dev The shape of a round is derived, never assumed. With everyone on one team there is only
+    ///      one alive team, so the first round must be individual rather than an unprovable
+    ///      one-option tribal ballot.
+    function test_startGame_singleTeamOpensAnIndividualRound() public {
+        _deployWithMin(4, 3, 6, 2, 3);
+        _seatOneTeam(3, 1);
+
+        game.startGame();
+
+        (SurvivalGame.RoundKind kind,,,,,,,,) = game.getRound(0);
+        assertEq(uint8(kind), uint8(SurvivalGame.RoundKind.Individual));
+        assertEq(game.candidatesOf(0).length, 3);
+    }
+
+    /// @dev Above the merge threshold with two teams populated, the first round is tribal — two
+    ///      options — and whichever team loses has a single member who goes without a council round.
+    function test_startGame_twoPopulatedTeamsStillTribal() public {
+        _deployWithMin(4, 3, 3, 2, 4);
+        vm.prank(players[0]);
+        game.join(1);
+        vm.prank(players[1]);
+        game.join(2);
+        vm.prank(players[2]);
+        game.join(1);
+        vm.prank(players[3]);
+        game.join(2);
+
+        game.startGame();
+
+        (SurvivalGame.RoundKind kind,,,,,,,,) = game.getRound(0);
+        assertEq(uint8(kind), uint8(SurvivalGame.RoundKind.Tribal));
+        assertEq(game.candidateTeamsOf(0).length, 2);
+    }
+
+    /// @dev The interaction worth knowing about: `mergeAt` is checked before team count, so a floor
+    ///      at or below `mergeAt` means the game is post-merge from its very first round and no
+    ///      tribal or council round ever happens. That is coherent — a handful of players is not
+    ///      four tribes — but it makes the team configuration decorative, so it is pinned here
+    ///      rather than left to be rediscovered.
+    function test_startGame_atOrBelowMergeSkipsTribesEntirely() public {
+        _deployWithMin(4, 3, 6, 2, 4);
+        _seat(4, 3);
+
+        game.startGame();
+
+        (SurvivalGame.RoundKind kind,,,,,,,,) = game.getRound(0);
+        assertEq(uint8(kind), uint8(SurvivalGame.RoundKind.Individual));
+    }
+
+    /// @dev A floor at or below the finalist count would start a game that is already over.
+    function test_constructor_rejectsFloorAtOrBelowFinalists() public {
+        SurvivalGame.InitParams memory p = _paramsWithMin(4, 3, 6, 2, 2);
+        vm.expectRevert(SurvivalGame.InvalidConfig.selector);
+        new SurvivalGame(p);
+    }
+
+    function test_constructor_rejectsFloorAboveTheLobby() public {
+        SurvivalGame.InitParams memory p = _paramsWithMin(4, 3, 6, 2, 13);
+        vm.expectRevert(SurvivalGame.InvalidConfig.selector);
+        new SurvivalGame(p);
     }
 
     function test_startGame_requiresEveryTeamFull() public {

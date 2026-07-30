@@ -10,7 +10,7 @@
 #   ./scripts/play.sh --no-app     # bootstrap only (leaves the stack up)
 #   ./scripts/play.sh --reuse      # keep the running devnet, just deploy a fresh game
 #
-# Env overrides: TEAM_COUNT, MEMBERS_PER_TEAM, MERGE_AT, CAMPAIGN_DURATION, BALLOT_DURATION,
+# Env overrides: TEAM_COUNT, MEMBERS_PER_TEAM, MIN_PLAYERS, MERGE_AT, CAMPAIGN_DURATION, BALLOT_DURATION,
 #                TALLY_GRACE, ANVIL_PORT, APP_PORT, CRISP_VOTING_PLUGIN_ADDRESS
 set -euo pipefail
 
@@ -26,6 +26,9 @@ TEAM_COUNT="${TEAM_COUNT:-2}"
 MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-2}"
 MERGE_AT="${MERGE_AT:-2}"
 ROSTER=$((TEAM_COUNT * MEMBERS_PER_TEAM))
+# The lobby floor. Defaults to the full lobby here only because the local default lobby is already
+# tiny (4); on a bigger roster set it well below, or the game waits on the slowest joiner.
+MIN_PLAYERS="${MIN_PLAYERS:-$ROSTER}"
 # Long by default. The committee key takes ~290s to publish, and the ballot window has to fit a
 # human driving several wallets through browser proof generation at ~45-90s each — a window sized
 # for a script is unusable by hand.
@@ -121,7 +124,7 @@ echo "  PLUGIN $PLUGIN"
 
 step "deploying the game ($TEAM_COUNT teams of $MEMBERS_PER_TEAM, campaign=${CAMPAIGN_DURATION}s)"
 GAME_OUT="$(run_script "game deploy" "$ROOT/contracts" "script/DeployGame.s.sol:DeployGame" \
-  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM MERGE_AT=$MERGE_AT FINALISTS=2 MAX_MISSED_CHECKINS=0 ENTRY_FEE=0")"
+  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM MIN_PLAYERS=$MIN_PLAYERS MERGE_AT=$MERGE_AT FINALISTS=2 MAX_MISSED_CHECKINS=0 ENTRY_FEE=0")"
 GAME="$(pick "$GAME_OUT" GAME)"
 [ -n "$GAME" ] || { echo "$GAME_OUT" | tail -20; fail "could not parse the game address"; }
 # Bounds the frontend's campaign-event scan; anything at or before deployment is irrelevant.
@@ -176,6 +179,7 @@ JURY=$JURY
 DEPLOY_BLOCK=$DEPLOY_BLOCK
 TEAM_COUNT=$TEAM_COUNT
 MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM
+MIN_PLAYERS=$MIN_PLAYERS
 CAMPAIGN_DURATION=$CAMPAIGN_DURATION
 BALLOT_DURATION=$BALLOT_DURATION
 TALLY_GRACE=$TALLY_GRACE
@@ -228,7 +232,7 @@ $(printf '\033[1m')Ready.$(printf '\033[0m')
     #8  0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97
     #9  0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6
 
-  In the app: Join $ROSTER accounts across $TEAM_COUNT teams -> Start the game -> campaign
+  In the app: Join $MIN_PLAYERS+ accounts across $TEAM_COUNT teams (up to $ROSTER) -> Start -> campaign
   (${CAMPAIGN_DURATION}s) -> ballot (${BALLOT_DURATION}s) -> Settle round.
 
   A round is two ballots: everyone votes which team goes to council, then that team alone

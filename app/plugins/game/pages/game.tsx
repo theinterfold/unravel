@@ -100,6 +100,9 @@ export default function GamePage() {
     });
 
   const lobbySize = game.config.teamCount * game.config.membersPerTeam;
+  // Seats stay open until someone starts, so the button unlocks at the floor rather than at a full
+  // lobby — waiting for the last joiner is how a lobby never plays.
+  const canStart = game.alive.length >= game.config.minPlayers;
 
   return (
     <main className="un">
@@ -137,9 +140,19 @@ export default function GamePage() {
             </div>
             <h2 className="un-title">Pick a tribe</h2>
             <p className="un-note" style={{ maxWidth: "62ch" }}>
-              {game.config.teamCount} tribes of {game.config.membersPerTeam}. The game starts when every seat is full,
-              and anyone can start it — a full lobby is an objective fact, not a privilege.
+              {game.config.teamCount} tribes of {game.config.membersPerTeam}, up to {lobbySize} players.{" "}
+              {canStart
+                ? "Enough have joined — anyone can start it now, and every seat still open stays empty for the whole game."
+                : `${game.config.minPlayers - game.alive.length} more and anyone can start it.`}{" "}
+              Nobody is in charge of starting: reaching the floor is an objective fact, not a privilege.
             </p>
+            {canStart && game.alive.length <= game.config.mergeAt && (
+              <p className="un-fine" style={{ maxWidth: "62ch", color: "var(--un-condemned-soft)" }}>
+                Heads up: starting at {game.alive.length} is at or below the merge threshold of {game.config.mergeAt},
+                so tribes dissolve immediately and every round is an individual vote. Start with more than{" "}
+                {game.config.mergeAt} if you want tribal and council rounds.
+              </p>
+            )}
             <div className="un-row">
               <select
                 className="un-select"
@@ -160,7 +173,7 @@ export default function GamePage() {
               <button
                 type="button"
                 className="un-btn un-btn-ghost"
-                disabled={isPending || game.alive.length !== lobbySize}
+                disabled={isPending || !canStart}
                 onClick={() => void call("startGame")}
               >
                 Start the game

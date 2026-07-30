@@ -73,6 +73,9 @@ COMPUTE_PROVIDER_PARAMS="${COMPUTE_PROVIDER_PARAMS:-0x7b226e616d65223a2252495343
 # generation in the browser, and a full roster proving sequentially is the real constraint.
 TEAM_COUNT="${TEAM_COUNT:-4}"
 MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-3}"
+# The lobby floor. Well below a full lobby on purpose: waiting for every seat makes the game hostage
+# to the slowest joiner. Must exceed MERGE_AT for tribal rounds to happen at all.
+MIN_PLAYERS="${MIN_PLAYERS:-8}"
 MERGE_AT="${MERGE_AT:-6}"
 FINALISTS="${FINALISTS:-2}"
 CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-900}" # 15m
@@ -207,9 +210,9 @@ echo "  PLUGIN $PLUGIN"
 
 # ─── 3. game ────────────────────────────────────────────────────────────────────────────────────
 
-step "deploying the game ($TEAM_COUNT teams of $MEMBERS_PER_TEAM)"
+step "deploying the game ($TEAM_COUNT teams of $MEMBERS_PER_TEAM, starts at $MIN_PLAYERS)"
 GAME_OUT="$(run_script "game deploy" "$ROOT/contracts" "script/DeployGame.s.sol:DeployGame" \
-  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM MERGE_AT=$MERGE_AT FINALISTS=$FINALISTS MAX_MISSED_CHECKINS=$MAX_MISSED_CHECKINS ENTRY_FEE=$ENTRY_FEE")"
+  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM MIN_PLAYERS=$MIN_PLAYERS MERGE_AT=$MERGE_AT FINALISTS=$FINALISTS MAX_MISSED_CHECKINS=$MAX_MISSED_CHECKINS ENTRY_FEE=$ENTRY_FEE")"
 GAME="$(pick "$GAME_OUT" GAME)"
 [ -n "$GAME" ] || { echo "$GAME_OUT" | tail -25; fail "could not parse the game address"; }
 DEPLOY_BLOCK="$(cast block-number --rpc-url "$RPC" 2>/dev/null || echo 0)"
@@ -270,8 +273,8 @@ echo "  censusProvider = $PROVIDER"
 # with empty data that explains nothing. Finding that on a fork costs nothing; finding it after a live
 # deploy means redeploying.
 if [ "$DRY_RUN" = "1" ]; then
-  NEED=$((TEAM_COUNT * MEMBERS_PER_TEAM))
-  step "rehearsing: filling the lobby with $NEED players and opening a round"
+  NEED=$MIN_PLAYERS
+  step "rehearsing: seating $NEED players (the lobby floor) and opening a round"
 
   MNEMONIC="test test test test test test test test test test test junk"
   i=0
@@ -332,6 +335,7 @@ JURY=$JURY
 DEPLOY_BLOCK=$DEPLOY_BLOCK
 TEAM_COUNT=$TEAM_COUNT
 MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM
+MIN_PLAYERS=$MIN_PLAYERS
 CAMPAIGN_DURATION=$CAMPAIGN_DURATION
 BALLOT_DURATION=$BALLOT_DURATION
 TALLY_GRACE=$TALLY_GRACE
@@ -376,8 +380,8 @@ $(printf '\033[1m')Deployed to Sepolia.$(printf '\033[0m')
 
   1. bun run app:dev   — app/.env already points at this deployment.
 
-  2. Import the deployer (or any funded key) into MetaMask on Sepolia, join $((TEAM_COUNT * MEMBERS_PER_TEAM))
-     players across $TEAM_COUNT teams, then Start. Players need Sepolia ETH for gas but no fee tokens:
+  2. Import the deployer (or any funded key) into MetaMask on Sepolia, join $MIN_PLAYERS
+     players across $TEAM_COUNT teams (the floor; up to $((TEAM_COUNT * MEMBERS_PER_TEAM)) may join), then Start. Players need Sepolia ETH for gas but no fee tokens:
      the E3 fee comes from the pot.
 
   3. The campaign window is ${CAMPAIGN_DURATION}s. The ballot cannot open before the committee

@@ -107,10 +107,11 @@ function toConfig(raw: readonly unknown[]): GameConfig {
     tallyGrace: raw[2] as bigint,
     teamCount: Number(raw[3]),
     membersPerTeam: Number(raw[4]),
-    mergeAt: Number(raw[5]),
-    finalists: Number(raw[6]),
-    maxMissedCheckIns: Number(raw[7]),
-    entryFee: raw[8] as bigint,
+    minPlayers: Number(raw[5]),
+    mergeAt: Number(raw[6]),
+    finalists: Number(raw[7]),
+    maxMissedCheckIns: Number(raw[8]),
+    entryFee: raw[9] as bigint,
   };
 }
 
