@@ -76,6 +76,14 @@ sed -E -i '' \
 grep -E "rpc_url:|quic_port:" interfold.config.yaml | head -2
 grep -E "HTTP_RPC_URL|PROGRAM_SERVER_URL" server/.env
 
+step "clearing any leftover swarm state"
+# Must happen BEFORE registration. dev_cipher.sh starts its own swarm, and `interfold nodes up`
+# refuses with "Swarm is already running!" if stale state exists — then reports the *old* swarm's
+# process table, which looks exactly like nodes failing to boot today. dev_cipher.sh also wipes
+# .interfold/data at the top, which would orphan a still-running swarm.
+(cd "$CRISP_DIR" && interfold nodes down >/dev/null 2>&1) || true
+echo "  cleared"
+
 step "registering ciphernodes"
 # dev_cipher.sh registers the nodes and starts the swarm, but its EXIT trap kills the swarm on the
 # way out — so it is used only for registration, and the swarm is started separately below.
@@ -94,6 +102,7 @@ wait "$CIPHER_PID" 2>/dev/null || true
 echo "registered"
 
 step "starting the ciphernode swarm"
+# dev_cipher.sh's EXIT trap has just killed the swarm it started; clear the state it left behind.
 interfold nodes down >/dev/null 2>&1 || true
 interfold nodes up -v > "$LOGS/nodes.log" 2>&1 &
 until lsof -nP -i:"${QUIC_PREFIX}1" >/dev/null 2>&1; do sleep 2; done
