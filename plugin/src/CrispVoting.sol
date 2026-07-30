@@ -144,8 +144,13 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
 
         {
             /// @notice Decode the data
-            (uint256 _allowFailureMap, uint256 numOptions, uint256 creditMode, uint256 credits) =
-                abi.decode(_data, (uint256, uint256, uint256, uint256));
+            (
+                uint256 _allowFailureMap,
+                uint256 numOptions,
+                uint256 creditMode,
+                uint256 credits,
+                uint256 electorateSize
+            ) = abi.decode(_data, (uint256, uint256, uint256, uint256, uint256));
 
             if (numOptions < 2) {
                 revert InvalidOptionCount(numOptions);
@@ -188,7 +193,9 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
                 snapshotBlock: _tokenClock() - 1,
                 minVotingPower: votingSettings.minProposerVotingPower,
                 minParticipation: votingSettings.minParticipation,
-                creditMode: ICRISP.CreditMode(creditMode)
+                creditMode: ICRISP.CreditMode(creditMode),
+                credits: credits,
+                electorateSize: electorateSize
             });
             proposal.allowFailureMap = _allowFailureMap;
             proposal.targetConfig = getTargetConfig();
@@ -216,10 +223,6 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
         Proposal storage proposal = proposals[_proposalId];
 
         // signaling-only proposals (polls) cannot be executed
-        if (_isSignalingOnly(proposal.parameters)) {
-            revert ProposalNotExecutable(_proposalId);
-        }
-
         // the voting window must have closed before a proposal can be executed
         if (block.timestamp < proposal.parameters.endDate) {
             revert ProposalExecutionForbidden(_proposalId);
@@ -325,7 +328,7 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
     /// @notice Get the custom proposal parameters ABI.
     /// @dev Mirrors the `_data` payload decoded in `createProposal`.
     function customProposalParamsABI() external pure returns (string memory) {
-        return "(uint256 allowFailureMap, uint256 numOptions, uint256 creditMode, uint256 credits)";
+        return "(uint256 allowFailureMap, uint256 numOptions, uint256 creditMode, uint256 credits, uint256 electorateSize)";
     }
 
     /// @notice Get the tally result
@@ -446,11 +449,6 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
             return false;
         }
 
-        // signaling-only proposals (polls) are never executable
-        if (_isSignalingOnly(proposal.parameters)) {
-            return false;
-        }
-
         // Sum all votes for quorum check
         uint256 totalVotes = 0;
         for (uint256 i = 0; i < counts.length;) {
@@ -460,25 +458,87 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
             }
         }
 
-        // Check quorum: turnout (totalVotes) vs. minParticipation% of total voting power.
-        // The tally is recorded in scaled vote units (each voter's power is divided by
-        // `_voteScale()` before being submitted to CRISP so it fits the plaintext vote vector),
-        // whereas `totalVotingPower` is the raw token supply. We therefore scale `totalVotes`
-        // back up rather than dividing the supply down, which avoids any truncation:
-        //   totalVotes * scale * RATIO_BASE >= minParticipation * totalSupply
-        uint256 _totalVotingPower = totalVotingPower(proposal.parameters.snapshotBlock);
+        if (!_quorumReached(proposal.parameters, totalVotes)) {
+            return false;
+        }
+
+        // Yes/No/Abstain ballots keep their original semantics: yes (index 0) must strictly beat
+        // no (index 1). Argmax would NOT be equivalent — a ballot where abstain polls highest but
+        // yes still beats no executes under this rule and would not under argmax — so the existing
+        // meaning is preserved rather than quietly redefined.
+        if (proposal.parameters.numOptions <= 3 && proposal.parameters.creditMode == ICRISP.CreditMode.CUSTOM) {
+            return counts[0] > counts[1];
+        }
+
+        // N-option ballots are decided by a unique maximum. A tie is deliberately NOT executable:
+        // the plugin has no basis for choosing between tied options, and inventing one would bury a
+        // policy decision in infrastructure. Callers that need a tie broken should read the tally
+        // and apply their own rule.
+        (, bool unique) = _leadingOption(counts);
+        return unique;
+    }
+
+    /// @notice Whether turnout met the participation threshold.
+    /// @dev The denominator depends on the credit mode, and getting this wrong is the reason
+    ///      constant-credit proposals used to be barred from executing at all.
+    ///
+    ///      Under `CUSTOM`, tallies are token power divided by `_voteScale()`, so turnout is scaled
+    ///      back up and compared against raw token supply — multiplying turnout rather than dividing
+    ///      supply avoids truncation.
+    ///
+    ///      Under `CONSTANT`, every voter contributes exactly `credits` regardless of holdings, so
+    ///      turnout is bounded by `electorateSize * credits`. Comparing it against token supply
+    ///      would compare unrelated units and produce an essentially arbitrary verdict.
+    /// @param _parameters The stored proposal parameters.
+    /// @param _totalVotes The summed tally.
+    /// @return Whether quorum was reached.
+    function _quorumReached(ProposalParameters memory _parameters, uint256 _totalVotes)
+        internal
+        view
+        returns (bool)
+    {
+        uint256 minParticipation_ = uint256(votingSettings.minParticipation);
+
+        if (_parameters.creditMode == ICRISP.CreditMode.CONSTANT) {
+            uint256 electorate = _parameters.electorateSize * _parameters.credits;
+            // A creator that did not declare an electorate leaves no meaningful denominator, so the
+            // proposal cannot clear quorum. Failing closed beats inventing a threshold.
+            if (electorate == 0) {
+                return false;
+            }
+            return _totalVotes * RATIO_BASE >= minParticipation_ * electorate;
+        }
+
+        uint256 _totalVotingPower = totalVotingPower(_parameters.snapshotBlock);
         if (_totalVotingPower == 0) {
             return false;
         }
+        return _totalVotes * _voteScale() * RATIO_BASE >= minParticipation_ * _totalVotingPower;
+    }
 
-        bool quorumReached =
-            totalVotes * _voteScale() * RATIO_BASE >= uint256(votingSettings.minParticipation) * _totalVotingPower;
-        if (!quorumReached) {
-            return false;
+    /// @notice The highest-polling option, and whether it is unique.
+    /// @param counts The decoded tally.
+    /// @return index The index of the highest-polling option.
+    /// @return unique False if no votes were cast, or if two or more options share the lead.
+    function _leadingOption(uint256[] memory counts) internal pure returns (uint256 index, bool unique) {
+        uint256 highest;
+        uint256 tied;
+
+        for (uint256 i = 0; i < counts.length;) {
+            if (counts[i] > highest) {
+                highest = counts[i];
+                index = i;
+                tied = 1;
+            } else if (counts[i] == highest && highest != 0) {
+                ++tied;
+            }
+            unchecked {
+                ++i;
+            }
         }
 
-        // For 2-3 options: yes (index 0) must strictly beat no (index 1)
-        return counts[0] > counts[1];
+        // An all-zero tally has no winner: nobody voted, so there is nothing to enact.
+        unique = highest != 0 && tied == 1;
     }
 
     /// @notice Current timepoint in the voting token's ERC-6372 clock units.
@@ -505,16 +565,6 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
     function _voteScale() internal view returns (uint256) {
         uint8 tokenDecimals = IERC20MetadataUpgradeable(address(votingToken)).decimals();
         return 10 ** (uint256(tokenDecimals) / 2);
-    }
-
-    /// @notice Whether a proposal is signaling-only (a poll) and therefore cannot be executed.
-    /// @dev Only binary-style votes are executable: at most 3 options (yes/no/abstain) and CUSTOM
-    /// credits (so the token-supply quorum denominator is meaningful). Proposals with more than 3
-    /// options, or CONSTANT credits, are polls whose tally is informational only.
-    /// @param _parameters The stored parameters of the proposal.
-    /// @return Returns `true` if the proposal is signaling-only, otherwise false.
-    function _isSignalingOnly(ProposalParameters memory _parameters) internal pure returns (bool) {
-        return _parameters.numOptions > 3 || _parameters.creditMode == ICRISP.CreditMode.CONSTANT;
     }
 
     /// @notice Checks if proposal exists or not.

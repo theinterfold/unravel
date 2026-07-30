@@ -27,9 +27,8 @@ interface ICrispVoting {
     /// @notice Thrown when the number of options is less than 2.
     /// @param numOptions The number of options provided.
     error InvalidOptionCount(uint256 numOptions);
-    /// @notice Thrown when attempting to execute a signaling-only proposal. A proposal is
-    /// signaling-only (poll) if it has more than 3 options or uses CONSTANT credits, and therefore
-    /// has no binding execution semantics.
+    /// @notice Thrown when a proposal cannot be executed because its outcome is not decisive:
+    /// either quorum was not reached, or the tally has no unique winning option.
     /// @param proposalId The ID of the proposal.
     error ProposalNotExecutable(uint256 proposalId);
     /// @notice Thrown when a proposal date is outside the allowed bounds.
@@ -82,6 +81,17 @@ interface ICrispVoting {
         uint256 minVotingPower;
         uint256 minParticipation;
         ICRISP.CreditMode creditMode;
+        /// @notice Credits granted to each voter under `CreditMode.CONSTANT`.
+        uint256 credits;
+        /// @notice Number of eligible voters, declared by the creator.
+        /// @dev Required for `CONSTANT` credits and ignored otherwise. Under constant credits each
+        ///      voter contributes exactly `credits`, so the participation denominator is
+        ///      `electorateSize * credits` — the token supply is a different unit entirely and
+        ///      comparing against it is meaningless. The contract cannot derive this itself: the
+        ///      eligible set is decided off-chain by the CRISP census, so the creator must state it.
+        ///      A creator understating it inflates apparent turnout, so it is only as trustworthy as
+        ///      the creator — verify it against the census where that matters.
+        uint256 electorateSize;
     }
 
     /// @notice The parameters for initializing the plugin
