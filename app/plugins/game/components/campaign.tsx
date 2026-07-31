@@ -4,6 +4,7 @@ import { uploadToPinata } from "@/utils/ipfs";
 import { useAlerts } from "@/context/Alerts";
 import { useCampaignFeed, useCampaignActions } from "../hooks/useCampaign";
 import { shortAddress, sameAddress } from "../utils/tribes";
+import { describeGameError } from "../utils/errors";
 
 interface CampaignProps {
   round: number;
@@ -33,7 +34,7 @@ export const Campaign: FC<CampaignProps> = ({ round, canPost, self, closed }) =>
       addAlert("Posted.", { type: "success", timeout: 3000 });
     } catch (e) {
       console.error("campaign post:", e);
-      addAlert(e instanceof Error ? e.message : "Could not post", { type: "error" });
+      addAlert(describeGameError(e), { type: "error" });
     }
   };
 

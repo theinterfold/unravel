@@ -76,8 +76,10 @@ contract SurvivalGame is Ownable {
         uint64 tallyGrace;
         /// @notice Teams in the game. Must be in 2..=MAX_BALLOT_OPTIONS.
         uint8 teamCount;
-        /// @notice Members per team. Must be in 1..=MAX_BALLOT_OPTIONS.
-        uint8 membersPerTeam;
+        /// @notice The fewest members a team may have when the game starts. Must be in
+        /// 1..=MAX_BALLOT_OPTIONS. There is no configured ceiling: a team may grow to
+        /// MAX_BALLOT_OPTIONS, which is the circuit's limit on a council ballot, not a game rule.
+        uint8 minMembersPerTeam;
         /// @notice Players needed before the game may start. Must be in (finalists, teamCount *
         /// membersPerTeam]. Set it equal to the full lobby to require every seat.
         uint8 minPlayers;
@@ -178,7 +180,8 @@ contract SurvivalGame is Ownable {
     error InvalidConfig();
     error AlreadyJoined();
     error InvalidTeam(uint8 team);
-    error TeamFull(uint8 team);
+    error TeamFull(uint8 team, uint256 limit);
+    error TeamBelowMinimum(uint8 team, uint256 have, uint256 need);
     error LobbyIncomplete(uint256 have, uint256 need);
     error PreviousRoundUnsettled();
     error TooManyOptions(uint256 count);
@@ -216,14 +219,17 @@ contract SurvivalGame is Ownable {
         // option counts so both are capped by the circuit.
         if (
             cfg.finalists < 2 || cfg.teamCount < 2 || cfg.teamCount > MAX_BALLOT_OPTIONS
-                || cfg.membersPerTeam == 0 || cfg.membersPerTeam > MAX_BALLOT_OPTIONS
+                || cfg.minMembersPerTeam == 0 || cfg.minMembersPerTeam > MAX_BALLOT_OPTIONS
                 || cfg.mergeAt > MAX_BALLOT_OPTIONS || cfg.mergeAt < cfg.finalists
                 || cfg.campaignDuration == 0 || cfg.ballotDuration == 0
-                || uint256(cfg.teamCount) * uint256(cfg.membersPerTeam) <= cfg.finalists
+                || uint256(cfg.teamCount) * MAX_BALLOT_OPTIONS <= cfg.finalists
                 // A game that starts already over is not a game, and the first round needs at least
                 // two names on the ballot however the players happen to be spread across teams.
                 || cfg.minPlayers <= cfg.finalists
-                || uint256(cfg.minPlayers) > uint256(cfg.teamCount) * uint256(cfg.membersPerTeam)
+                // The floor has to be reachable: every team needs `minMembersPerTeam` before the
+                // game may start, so a floor below that sum could never satisfy both rules at once.
+                || cfg.minPlayers < uint256(cfg.teamCount) * uint256(cfg.minMembersPerTeam)
+                || uint256(cfg.minPlayers) > uint256(cfg.teamCount) * MAX_BALLOT_OPTIONS
         ) revert InvalidConfig();
 
         plugin = params.plugin;
@@ -242,7 +248,10 @@ contract SurvivalGame is Ownable {
         if (stage != Stage.Lobby) revert WrongStage(Stage.Lobby, stage);
         if (isPlayer[msg.sender]) revert AlreadyJoined();
         if (team == 0 || team > config.teamCount) revert InvalidTeam(team);
-        if (teamMembers[team].length >= config.membersPerTeam) revert TeamFull(team);
+        // The only ceiling is the circuit's. A council round puts one option per team member on the
+        // ballot, so a team larger than MAX_BALLOT_OPTIONS could not be voted on at all — everything
+        // below that is the players' business, not the config's.
+        if (teamMembers[team].length >= MAX_BALLOT_OPTIONS) revert TeamFull(team, MAX_BALLOT_OPTIONS);
 
         uint256 fee = config.entryFee;
         if (fee != 0) {
@@ -277,6 +286,15 @@ contract SurvivalGame is Ownable {
         if (stage != Stage.Lobby) revert WrongStage(Stage.Lobby, stage);
         uint256 need = config.minPlayers;
         if (alive.length < need) revert LobbyIncomplete(alive.length, need);
+
+        // Team size has no ceiling, so nothing stops a lobby piling into one team — and a game whose
+        // tribes are empty is not the game that was configured. The minimum is enforced here rather
+        // than at `join`, because the first person to join a team would otherwise be unable to.
+        uint8 floor_ = config.minMembersPerTeam;
+        for (uint8 t = 1; t <= config.teamCount; ++t) {
+            uint256 have = teamMembers[t].length;
+            if (have < floor_) revert TeamBelowMinimum(t, have, floor_);
+        }
 
         stage = Stage.Playing;
         emit GameStarted(alive.length, config.teamCount, pot);

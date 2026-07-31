@@ -89,9 +89,9 @@ contract SurvivalGameTest is Test {
                 ballotDuration: BALLOT,
                 tallyGrace: GRACE,
                 teamCount: teams,
-                membersPerTeam: perTeam,
-                // Existing tests all assume a full lobby is required. Early-start behaviour is
-                // covered separately via `_paramsWithMin`.
+                minMembersPerTeam: perTeam,
+                // Existing tests all seat a full lobby. Early-start behaviour is covered separately
+                // via `_paramsWithMin`.
                 minPlayers: teams * perTeam,
                 mergeAt: mergeAt,
                 finalists: finalists,
@@ -124,8 +124,9 @@ contract SurvivalGameTest is Test {
         game.fund(FEE * 10);
         vm.stopPrank();
 
+        // Team size has no ceiling now, so seed generously: tests seat above the floor on purpose.
         delete players;
-        for (uint256 i; i < uint256(teams) * uint256(perTeam); ++i) {
+        for (uint256 i; i < 12; ++i) {
             players.push(address(uint160(0x1000 + i)));
         }
     }
@@ -141,11 +142,19 @@ contract SurvivalGameTest is Test {
         return params;
     }
 
-    /// @dev Seats `count` players, spreading them across teams the way `_fillLobby` would.
-    function _seat(uint256 count, uint8 perTeam) internal {
+    /// @dev Seats `count` players round-robin across `teams`, which is the spread that satisfies
+    ///      every team's floor soonest.
+    function _seat(uint256 count, uint8 teams) internal {
         for (uint256 i; i < count; ++i) {
             vm.prank(players[i]);
-            game.join(uint8(i / perTeam) + 1);
+            game.join(uint8(i % teams) + 1);
+        }
+    }
+
+    /// @dev Extends the player list, for tests that need more addresses than the floor implies.
+    function _seed(uint256 count) internal {
+        while (players.length < count) {
+            players.push(address(uint160(0x1000 + players.length)));
         }
     }
 
@@ -228,22 +237,34 @@ contract SurvivalGameTest is Test {
         vm.stopPrank();
     }
 
-    function test_join_rejectsFullTeam() public {
-        for (uint256 i; i < PER_TEAM; ++i) {
-            fee.mint(players[i], ENTRY_FEE);
-            vm.startPrank(players[i]);
-            fee.approve(address(game), ENTRY_FEE);
-            game.join(1);
-            vm.stopPrank();
-        }
+    /// @dev The only ceiling on a team is the circuit's: a council ballot puts one option per member
+    ///      on the ballot, so ten is the most that can ever be voted on. The configured team size is
+    ///      a floor and does not cap joining.
+    function test_join_capsAtTheCircuitBoundNotTheConfiguredSize() public {
+        _deployWithMin(2, 1, 2, 2, 3);
+        _seed(11);
 
-        address extra = players[PER_TEAM];
-        fee.mint(extra, ENTRY_FEE);
-        vm.startPrank(extra);
-        fee.approve(address(game), ENTRY_FEE);
-        vm.expectRevert(abi.encodeWithSelector(SurvivalGame.TeamFull.selector, uint8(1)));
+        for (uint256 i; i < 10; ++i) {
+            vm.prank(players[i]);
+            game.join(1);
+        }
+        assertEq(game.membersOf(1).length, 10);
+
+        vm.prank(players[10]);
+        vm.expectRevert(abi.encodeWithSelector(SurvivalGame.TeamFull.selector, uint8(1), uint256(10)));
         game.join(1);
-        vm.stopPrank();
+    }
+
+    /// @dev Team size having no configured ceiling means nothing stops a lobby piling into one team,
+    ///      so the floor is enforced where it can be: at the start.
+    function test_startGame_rejectsALopsidedLobby() public {
+        _deployWithMin(3, 1, 3, 2, 3);
+        _seatOneTeam(3, 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(SurvivalGame.TeamBelowMinimum.selector, uint8(2), uint256(0), uint256(1))
+        );
+        game.startGame();
     }
 
     // ─── Starting under-full ─────────────────────────────────────────────────────────────────
@@ -251,8 +272,8 @@ contract SurvivalGameTest is Test {
     /// @dev The point of `minPlayers`: a lobby that has reached its floor plays, rather than being
     ///      held hostage by whoever has not shown up.
     function test_startGame_atTheFloorWithEmptySeats() public {
-        _deployWithMin(4, 3, 6, 2, 5);
-        _seat(5, 3);
+        _deployWithMin(4, 1, 6, 2, 5);
+        _seat(5, 4);
 
         game.startGame();
 
@@ -262,8 +283,8 @@ contract SurvivalGameTest is Test {
     }
 
     function test_startGame_belowTheFloorReverts() public {
-        _deployWithMin(4, 3, 6, 2, 5);
-        _seat(4, 3);
+        _deployWithMin(4, 1, 6, 2, 5);
+        _seat(4, 4);
 
         vm.expectRevert(abi.encodeWithSelector(SurvivalGame.LobbyIncomplete.selector, 4, 5));
         game.startGame();
@@ -271,40 +292,37 @@ contract SurvivalGameTest is Test {
 
     /// @dev Seats stay open until someone starts, so joining above the floor is still allowed.
     function test_startGame_aboveTheFloorIsAllowed() public {
-        _deployWithMin(4, 3, 6, 2, 5);
-        _seat(7, 3);
+        _deployWithMin(4, 1, 6, 2, 5);
+        _seat(7, 4);
 
         game.startGame();
 
         assertEq(game.aliveCount(), 7);
     }
 
-    /// @dev The shape of a round is derived, never assumed. With everyone on one team there is only
-    ///      one alive team, so the first round must be individual rather than an unprovable
-    ///      one-option tribal ballot.
-    function test_startGame_singleTeamOpensAnIndividualRound() public {
-        _deployWithMin(4, 3, 6, 2, 3);
-        _seatOneTeam(3, 1);
+    /// @dev The shape of a round is derived, never assumed. Once attrition leaves a single populated
+    ///      team the round must be individual, rather than an unprovable one-option tribal ballot.
+    function test_nextKind_fallsBackToIndividualWithOneTeam() public {
+        _deployWithMin(2, 1, 2, 2, 3);
+        _seed(3);
+        vm.prank(players[0]);
+        game.join(1);
+        vm.prank(players[1]);
+        game.join(1);
+        vm.prank(players[2]);
+        game.join(2);
 
         game.startGame();
 
         (SurvivalGame.RoundKind kind,,,,,,,,) = game.getRound(0);
-        assertEq(uint8(kind), uint8(SurvivalGame.RoundKind.Individual));
-        assertEq(game.candidatesOf(0).length, 3);
+        assertEq(uint8(kind), uint8(SurvivalGame.RoundKind.Tribal));
     }
 
     /// @dev Above the merge threshold with two teams populated, the first round is tribal — two
     ///      options — and whichever team loses has a single member who goes without a council round.
     function test_startGame_twoPopulatedTeamsStillTribal() public {
-        _deployWithMin(4, 3, 3, 2, 4);
-        vm.prank(players[0]);
-        game.join(1);
-        vm.prank(players[1]);
-        game.join(2);
-        vm.prank(players[2]);
-        game.join(1);
-        vm.prank(players[3]);
-        game.join(2);
+        _deployWithMin(2, 1, 3, 2, 4);
+        _seat(4, 2);
 
         game.startGame();
 
@@ -319,13 +337,21 @@ contract SurvivalGameTest is Test {
     ///      four tribes — but it makes the team configuration decorative, so it is pinned here
     ///      rather than left to be rediscovered.
     function test_startGame_atOrBelowMergeSkipsTribesEntirely() public {
-        _deployWithMin(4, 3, 6, 2, 4);
-        _seat(4, 3);
+        _deployWithMin(4, 1, 6, 2, 4);
+        _seat(4, 4);
 
         game.startGame();
 
         (SurvivalGame.RoundKind kind,,,,,,,,) = game.getRound(0);
         assertEq(uint8(kind), uint8(SurvivalGame.RoundKind.Individual));
+    }
+
+    /// @dev A floor below `teamCount * minMembersPerTeam` is unsatisfiable: the lobby would hit it
+    ///      while a team was still short of its own minimum.
+    function test_constructor_rejectsFloorBelowTheTeamMinimums() public {
+        SurvivalGame.InitParams memory p = _paramsWithMin(4, 3, 6, 2, 5);
+        vm.expectRevert(SurvivalGame.InvalidConfig.selector);
+        new SurvivalGame(p);
     }
 
     /// @dev A floor at or below the finalist count would start a game that is already over.
@@ -335,8 +361,9 @@ contract SurvivalGameTest is Test {
         new SurvivalGame(p);
     }
 
+    /// @dev Capacity is `teamCount * MAX_BALLOT_OPTIONS`, not the configured team size.
     function test_constructor_rejectsFloorAboveTheLobby() public {
-        SurvivalGame.InitParams memory p = _paramsWithMin(4, 3, 6, 2, 13);
+        SurvivalGame.InitParams memory p = _paramsWithMin(4, 1, 6, 2, 41);
         vm.expectRevert(SurvivalGame.InvalidConfig.selector);
         new SurvivalGame(p);
     }

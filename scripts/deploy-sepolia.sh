@@ -72,13 +72,17 @@ COMPUTE_PROVIDER_PARAMS="${COMPUTE_PROVIDER_PARAMS:-0x7b226e616d65223a2252495343
 # The ballot window is sized for people, not for the committee: each ballot is 45-90s of proof
 # generation in the browser, and a full roster proving sequentially is the real constraint.
 TEAM_COUNT="${TEAM_COUNT:-4}"
-MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-3}"
+# A floor, not a ceiling — teams may grow to MAX_TEAM_SIZE whatever this says. MEMBERS_PER_TEAM is
+# the old name for it and is still honoured.
+MIN_MEMBERS_PER_TEAM="${MIN_MEMBERS_PER_TEAM:-${MEMBERS_PER_TEAM:-2}}"
+# The circuit's MAX_OPTIONS: a council ballot has one option per team member.
+MAX_TEAM_SIZE=10
 # The lobby floor. Well below a full lobby on purpose: waiting for every seat makes the game hostage
 # to the slowest joiner. Must exceed MERGE_AT for tribal rounds to happen at all.
-ROSTER=$((TEAM_COUNT * MEMBERS_PER_TEAM))
-# Capped at the roster, because a floor above the lobby can never be reached and the contract
-# rejects it outright. A fixed default of 8 silently broke every roster smaller than that.
-MIN_PLAYERS="${MIN_PLAYERS:-$((ROSTER < 8 ? ROSTER : 8))}"
+CAPACITY=$((TEAM_COUNT * MAX_TEAM_SIZE))
+# The smallest legal start: every team at its floor. Deriving it means a small roster works out of
+# the box — a fixed default silently exceeded the lobby for any roster below it.
+MIN_PLAYERS="${MIN_PLAYERS:-$((TEAM_COUNT * MIN_MEMBERS_PER_TEAM))}"
 MERGE_AT="${MERGE_AT:-6}"
 FINALISTS="${FINALISTS:-2}"
 CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-900}" # 15m
@@ -157,19 +161,20 @@ cast code "$CRISP_PROGRAM" --rpc-url "$RPC" 2>/dev/null | grep -q "^0x." ||
 # bare `InvalidConfig()` that names no field — so the same rules are restated here purely to say
 # which knob is wrong, and after a deploy has already spent gas on tokens and the plugin.
 cfg_fail() { fail "round shape rejected: $1
-       team_count=$TEAM_COUNT members_per_team=$MEMBERS_PER_TEAM (roster $ROSTER)
+       team_count=$TEAM_COUNT min_members_per_team=$MIN_MEMBERS_PER_TEAM (capacity $CAPACITY)
        min_players=$MIN_PLAYERS merge_at=$MERGE_AT finalists=$FINALISTS"; }
 
 [ "$FINALISTS" -ge 2 ] || cfg_fail "FINALISTS must be at least 2 — a jury needs two names to choose between"
 [ "$TEAM_COUNT" -ge 2 ] || cfg_fail "TEAM_COUNT must be at least 2"
 [ "$TEAM_COUNT" -le 10 ] || cfg_fail "TEAM_COUNT must be at most 10 (the circuit's MAX_OPTIONS)"
-[ "$MEMBERS_PER_TEAM" -ge 1 ] || cfg_fail "MEMBERS_PER_TEAM must be at least 1"
-[ "$MEMBERS_PER_TEAM" -le 10 ] || cfg_fail "MEMBERS_PER_TEAM must be at most 10 (the circuit's MAX_OPTIONS)"
+[ "$MIN_MEMBERS_PER_TEAM" -ge 1 ] || cfg_fail "MIN_MEMBERS_PER_TEAM must be at least 1"
+[ "$MIN_MEMBERS_PER_TEAM" -le "$MAX_TEAM_SIZE" ] || cfg_fail "MIN_MEMBERS_PER_TEAM must be at most $MAX_TEAM_SIZE (the circuit's MAX_OPTIONS)"
 [ "$MERGE_AT" -le 10 ] || cfg_fail "MERGE_AT must be at most 10"
 [ "$MERGE_AT" -ge "$FINALISTS" ] || cfg_fail "MERGE_AT must be at least FINALISTS"
-[ "$ROSTER" -gt "$FINALISTS" ] || cfg_fail "the roster must exceed FINALISTS, or the game starts already over"
+[ "$CAPACITY" -gt "$FINALISTS" ] || cfg_fail "lobby capacity must exceed FINALISTS, or the game starts already over"
 [ "$MIN_PLAYERS" -gt "$FINALISTS" ] || cfg_fail "MIN_PLAYERS must exceed FINALISTS, or the game starts already over"
-[ "$MIN_PLAYERS" -le "$ROSTER" ] || cfg_fail "MIN_PLAYERS ($MIN_PLAYERS) is above the roster ($ROSTER) — a floor that can never be reached"
+[ "$MIN_PLAYERS" -le "$CAPACITY" ] || cfg_fail "MIN_PLAYERS ($MIN_PLAYERS) is above lobby capacity ($CAPACITY) — a floor that can never be reached"
+[ "$MIN_PLAYERS" -ge $((TEAM_COUNT * MIN_MEMBERS_PER_TEAM)) ] || cfg_fail "MIN_PLAYERS ($MIN_PLAYERS) is below TEAM_COUNT x MIN_MEMBERS_PER_TEAM ($((TEAM_COUNT * MIN_MEMBERS_PER_TEAM))) — the lobby could reach the floor while a team is still short"
 
 # Not a contract rule, but the thing most likely to disappoint: `_nextKind` checks the merge before
 # team count, so a floor at or below MERGE_AT means the game is post-merge from round one and no
@@ -198,7 +203,7 @@ if [ "$DRY_RUN" = "1" ]; then
 
   step "DRY RUN — forking Sepolia into a local anvil on port $FORK_PORT"
   # Enough funded accounts to fill the lobby in the rehearsal at the end.
-  FORK_ACCOUNTS=$((TEAM_COUNT * MEMBERS_PER_TEAM))
+  FORK_ACCOUNTS=$MIN_PLAYERS
   [ "$FORK_ACCOUNTS" -ge 10 ] || FORK_ACCOUNTS=10
   anvil --fork-url "$RPC" --port "$FORK_PORT" --accounts "$FORK_ACCOUNTS" --silent >/dev/null 2>&1 &
   FORK_PID=$!
@@ -254,9 +259,9 @@ echo "  PLUGIN $PLUGIN"
 
 # ─── 3. game ────────────────────────────────────────────────────────────────────────────────────
 
-step "deploying the game ($TEAM_COUNT teams of $MEMBERS_PER_TEAM, starts at $MIN_PLAYERS)"
+step "deploying the game ($TEAM_COUNT teams, min $MIN_MEMBERS_PER_TEAM each, starts at $MIN_PLAYERS)"
 GAME_OUT="$(run_script "game deploy" "$ROOT/contracts" "script/DeployGame.s.sol:DeployGame" \
-  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM MIN_PLAYERS=$MIN_PLAYERS MERGE_AT=$MERGE_AT FINALISTS=$FINALISTS MAX_MISSED_CHECKINS=$MAX_MISSED_CHECKINS ENTRY_FEE=$ENTRY_FEE")"
+  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MIN_MEMBERS_PER_TEAM=$MIN_MEMBERS_PER_TEAM MIN_PLAYERS=$MIN_PLAYERS MERGE_AT=$MERGE_AT FINALISTS=$FINALISTS MAX_MISSED_CHECKINS=$MAX_MISSED_CHECKINS ENTRY_FEE=$ENTRY_FEE")"
 GAME="$(pick "$GAME_OUT" GAME)"
 [ -n "$GAME" ] || { echo "$GAME_OUT" | tail -25; fail "could not parse the game address"; }
 DEPLOY_BLOCK="$(cast block-number --rpc-url "$RPC" 2>/dev/null || echo 0)"
@@ -378,7 +383,7 @@ LIFE=$LIFE
 JURY=$JURY
 DEPLOY_BLOCK=$DEPLOY_BLOCK
 TEAM_COUNT=$TEAM_COUNT
-MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM
+MIN_MEMBERS_PER_TEAM=$MIN_MEMBERS_PER_TEAM
 MIN_PLAYERS=$MIN_PLAYERS
 CAMPAIGN_DURATION=$CAMPAIGN_DURATION
 BALLOT_DURATION=$BALLOT_DURATION
@@ -425,7 +430,7 @@ $(printf '\033[1m')Deployed to Sepolia.$(printf '\033[0m')
   1. bun run app:dev   — app/.env already points at this deployment.
 
   2. Import the deployer (or any funded key) into MetaMask on Sepolia, join $MIN_PLAYERS
-     players across $TEAM_COUNT teams (the floor; up to $((TEAM_COUNT * MEMBERS_PER_TEAM)) may join), then Start. Players need Sepolia ETH for gas but no fee tokens:
+     players across $TEAM_COUNT teams (the floor; up to $CAPACITY may join), then Start. Players need Sepolia ETH for gas but no fee tokens:
      the E3 fee comes from the pot.
 
   3. The campaign window is ${CAMPAIGN_DURATION}s. The ballot cannot open before the committee

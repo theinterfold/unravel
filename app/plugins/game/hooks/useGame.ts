@@ -106,7 +106,7 @@ function toConfig(raw: readonly unknown[]): GameConfig {
     ballotDuration: raw[1] as bigint,
     tallyGrace: raw[2] as bigint,
     teamCount: Number(raw[3]),
-    membersPerTeam: Number(raw[4]),
+    minMembersPerTeam: Number(raw[4]),
     minPlayers: Number(raw[5]),
     mergeAt: Number(raw[6]),
     finalists: Number(raw[7]),

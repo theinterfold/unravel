@@ -15,8 +15,10 @@ import { RoundStatus } from "../components/roundStatus";
 import { Reveal } from "../components/reveal";
 import { CheckIn, CheckInTakeover, shouldTakeOver } from "../components/checkIn";
 import { Finalists } from "../components/finalists";
-import { RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
+import { MAX_TEAM_SIZE, RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
+import { describeGameError } from "../utils/errors";
+import { useAlerts } from "@/context/Alerts";
 import type { Address } from "viem";
 
 export default function GamePage() {
@@ -25,6 +27,7 @@ export default function GamePage() {
   const roundId = useCurrentRoundId();
   const { round } = useRound(roundId);
   const { writeContractAsync, isPending } = useWriteContract();
+  const { addAlert } = useAlerts();
   const [team, setTeam] = useState(1);
   const now = useNow();
 
@@ -88,18 +91,34 @@ export default function GamePage() {
   const secondsLeft = round && inBallot ? round.ballotClosesAt - now : 0n;
   const takeover = isAlive && shouldTakeOver(checkIn, secondsLeft);
 
+  // Every write goes through here so a revert becomes a sentence rather than an unhandled promise
+  // rejection. Reverts are ordinary in this game — a full tribe, a lobby short of its floor, a round
+  // settled a second time — and none of them should surface as a crash.
+  const send = async (label: string, run: () => Promise<unknown>) => {
+    try {
+      await run();
+    } catch (e) {
+      console.error(`${label}:`, e);
+      addAlert(describeGameError(e), { type: "error" });
+    }
+  };
+
   const call = (functionName: "startGame" | "openRound" | "settleRound") =>
-    writeContractAsync({ address: PUB_GAME_ADDRESS, abi: SurvivalGameAbi, functionName, args: [] });
+    send(functionName, () =>
+      writeContractAsync({ address: PUB_GAME_ADDRESS, abi: SurvivalGameAbi, functionName, args: [] })
+    );
 
   const joinTeam = () =>
-    writeContractAsync({
-      address: PUB_GAME_ADDRESS,
-      abi: SurvivalGameAbi,
-      functionName: "join",
-      args: [team],
-    });
+    send("join", () =>
+      writeContractAsync({
+        address: PUB_GAME_ADDRESS,
+        abi: SurvivalGameAbi,
+        functionName: "join",
+        args: [team],
+      })
+    );
 
-  const lobbySize = game.config.teamCount * game.config.membersPerTeam;
+  const capacity = game.config.teamCount * MAX_TEAM_SIZE;
   // Seats stay open until someone starts, so the button unlocks at the floor rather than at a full
   // lobby — waiting for the last joiner is how a lobby never plays.
   const canStart = game.alive.length >= game.config.minPlayers;
@@ -136,11 +155,12 @@ export default function GamePage() {
         {game.stage === Stage.Lobby && (
           <section className="un-panel un-stack">
             <div className="un-label-dim">
-              Lobby · {game.alive.length} of {lobbySize} seats taken
+              Lobby · {game.alive.length} joined, {game.config.minPlayers} needed
             </div>
             <h2 className="un-title">Pick a tribe</h2>
             <p className="un-note" style={{ maxWidth: "62ch" }}>
-              {game.config.teamCount} tribes of {game.config.membersPerTeam}, up to {lobbySize} players.{" "}
+              {game.config.teamCount} tribes. Every tribe needs at least {game.config.minMembersPerTeam}, and can
+              hold up to {MAX_TEAM_SIZE} — so the game fits {game.config.minPlayers} to {capacity} players.{" "}
               {canStart
                 ? "Enough have joined — anyone can start it now, and every seat still open stays empty for the whole game."
                 : `${game.config.minPlayers - game.alive.length} more and anyone can start it.`}{" "}
@@ -234,7 +254,7 @@ export default function GamePage() {
           self={address}
           condemnedTeam={round?.kind === RoundKind.Council ? round.targetTeam : undefined}
           merged={merged}
-          openSeats={game.stage === Stage.Lobby ? Math.max(0, lobbySize - game.alive.length) : 0}
+          openSeats={game.stage === Stage.Lobby ? Math.max(0, game.config.minPlayers - game.alive.length) : 0}
         />
 
         {round && roundId !== undefined && (

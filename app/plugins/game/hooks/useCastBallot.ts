@@ -6,6 +6,7 @@ import { encodeSolidityProof } from "@crisp-e3/sdk";
 
 import { useAlerts } from "@/context/Alerts";
 import { crispSdk } from "../utils/crispSdk";
+import { describeGameError } from "../utils/errors";
 import { getRandomVoterToMask } from "../utils/voters";
 import { CreditsMode } from "../utils/types";
 import type { EligibleVoter, IRoundDetailsResponse, VotingStep } from "../utils/types";
@@ -188,7 +189,9 @@ export function useCastBallot(): CastBallotState {
       setStepMessage(`${label} submitted.`);
       addAlert(`${label} submitted.`, { timeout: 3000, type: "success" });
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Unknown error";
+      // Same treatment as the game's own writes: a wallet rejection or a contract revert should read
+      // as a sentence, not as viem's ABI plumbing.
+      const message = describeGameError(e);
       console.error("castBallot:", e);
       setError(message);
       setVotingStep("error");

@@ -10,7 +10,7 @@
 #   ./scripts/play.sh --no-app     # bootstrap only (leaves the stack up)
 #   ./scripts/play.sh --reuse      # keep the running devnet, just deploy a fresh game
 #
-# Env overrides: TEAM_COUNT, MEMBERS_PER_TEAM, MIN_PLAYERS, MERGE_AT, CAMPAIGN_DURATION, BALLOT_DURATION,
+# Env overrides: TEAM_COUNT, MIN_MEMBERS_PER_TEAM, MIN_PLAYERS, MERGE_AT, CAMPAIGN_DURATION, BALLOT_DURATION,
 #                TALLY_GRACE, ANVIL_PORT, APP_PORT, CRISP_VOTING_PLUGIN_ADDRESS
 set -euo pipefail
 
@@ -23,12 +23,11 @@ CRISP_SERVER="${CRISP_SERVER_URL:-http://127.0.0.1:4000}"
 APP_PORT="${APP_PORT:-3000}"
 
 TEAM_COUNT="${TEAM_COUNT:-2}"
-MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-2}"
+MIN_MEMBERS_PER_TEAM="${MIN_MEMBERS_PER_TEAM:-${MEMBERS_PER_TEAM:-2}}"
 MERGE_AT="${MERGE_AT:-2}"
-ROSTER=$((TEAM_COUNT * MEMBERS_PER_TEAM))
-# The lobby floor. Defaults to the full lobby here only because the local default lobby is already
-# tiny (4); on a bigger roster set it well below, or the game waits on the slowest joiner.
-MIN_PLAYERS="${MIN_PLAYERS:-$ROSTER}"
+# The smallest legal start: every team at its floor. Teams may still grow to 10 each.
+MIN_PLAYERS="${MIN_PLAYERS:-$((TEAM_COUNT * MIN_MEMBERS_PER_TEAM))}"
+ROSTER=$MIN_PLAYERS
 # Long by default. The committee key takes ~290s to publish, and the ballot window has to fit a
 # human driving several wallets through browser proof generation at ~45-90s each — a window sized
 # for a script is unusable by hand.
@@ -122,9 +121,9 @@ DAO="$(pick "$PLUGIN_OUT" DAO)"; PLUGIN="$(pick "$PLUGIN_OUT" PLUGIN)"
 echo "  DAO    $DAO"
 echo "  PLUGIN $PLUGIN"
 
-step "deploying the game ($TEAM_COUNT teams of $MEMBERS_PER_TEAM, campaign=${CAMPAIGN_DURATION}s)"
+step "deploying the game ($TEAM_COUNT teams, min $MIN_MEMBERS_PER_TEAM each, campaign=${CAMPAIGN_DURATION}s)"
 GAME_OUT="$(run_script "game deploy" "$ROOT/contracts" "script/DeployGame.s.sol:DeployGame" \
-  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM MIN_PLAYERS=$MIN_PLAYERS MERGE_AT=$MERGE_AT FINALISTS=2 MAX_MISSED_CHECKINS=0 ENTRY_FEE=0")"
+  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MIN_MEMBERS_PER_TEAM=$MIN_MEMBERS_PER_TEAM MIN_PLAYERS=$MIN_PLAYERS MERGE_AT=$MERGE_AT FINALISTS=2 MAX_MISSED_CHECKINS=0 ENTRY_FEE=0")"
 GAME="$(pick "$GAME_OUT" GAME)"
 [ -n "$GAME" ] || { echo "$GAME_OUT" | tail -20; fail "could not parse the game address"; }
 # Bounds the frontend's campaign-event scan; anything at or before deployment is irrelevant.
@@ -178,7 +177,7 @@ LIFE=$LIFE
 JURY=$JURY
 DEPLOY_BLOCK=$DEPLOY_BLOCK
 TEAM_COUNT=$TEAM_COUNT
-MEMBERS_PER_TEAM=$MEMBERS_PER_TEAM
+MIN_MEMBERS_PER_TEAM=$MIN_MEMBERS_PER_TEAM
 MIN_PLAYERS=$MIN_PLAYERS
 CAMPAIGN_DURATION=$CAMPAIGN_DURATION
 BALLOT_DURATION=$BALLOT_DURATION

@@ -1,6 +1,8 @@
 import type { FC } from "react";
 import { formatCountdown } from "../utils/tribes";
+import { useAlerts } from "@/context/Alerts";
 import type { CheckInState } from "../hooks/useCheckIn";
+import { describeGameError } from "../utils/errors";
 
 interface CheckInProps {
   state: CheckInState;
@@ -17,7 +19,8 @@ interface CheckInProps {
 /// make slot activity meaningless, so the chain genuinely cannot tell who voted. This is the public
 /// signal instead, and it leaks nothing about the ballot.
 export const CheckIn: FC<CheckInProps> = ({ state, secondsLeft }) => {
-  const { missed, limit, current, immature, isPending, checkIn } = state;
+  const { missed, limit, current, immature, isPending } = state;
+  const checkIn = useGuardedCheckIn(state);
 
   if (current) {
     return (
@@ -79,20 +82,35 @@ export const CheckIn: FC<CheckInProps> = ({ state, secondsLeft }) => {
 ///
 /// The only takeover in the whole product, which is exactly why it works. Undismissable on purpose —
 /// there is precisely one thing worth doing and dismissing it is not it.
-export const CheckInTakeover: FC<CheckInProps> = ({ state, secondsLeft }) => (
+export const CheckInTakeover: FC<CheckInProps> = ({ state, secondsLeft }) => {
+  const checkIn = useGuardedCheckIn(state);
+  return (
   <div className="un-takeover" role="alertdialog" aria-modal="true" aria-label="Check in now">
     <div className="un-label" style={{ color: "#fff" }}>
       {state.missed} missed · you are one round from elimination
     </div>
     <p className="un-takeover-line">Sign this or the game ends for you in {formatCountdown(secondsLeft)}.</p>
-    <button type="button" className="un-btn" disabled={state.isPending} onClick={() => void state.checkIn()}>
+    <button type="button" className="un-btn" disabled={state.isPending} onClick={checkIn}>
       {state.isPending ? "Signing…" : "Check in"}
     </button>
     <p className="un-fine" style={{ color: "rgba(255,255,255,.8)" }}>
       One tap. No proof, no waiting, and it says nothing about how you voted.
     </p>
-  </div>
-);
+    </div>
+  );
+};
+
+/// Check-in is the action most likely to be tapped under time pressure, so a silent failure here is
+/// the worst one in the game — the player believes they are safe and is eliminated next round.
+function useGuardedCheckIn(state: CheckInProps["state"]) {
+  const { addAlert } = useAlerts();
+  return () => {
+    void state.checkIn().catch((e: unknown) => {
+      console.error("checkIn:", e);
+      addAlert(describeGameError(e), { type: "error" });
+    });
+  };
+}
 
 /// Whether the takeover should be showing. Kept next to the component so the threshold lives in one
 /// place — it is the single most disruptive thing the UI can do.

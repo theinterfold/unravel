@@ -36,7 +36,9 @@ export type GameConfig = {
   ballotDuration: bigint;
   tallyGrace: bigint;
   teamCount: number;
-  membersPerTeam: number;
+  /// The fewest members a team must have before the game may start. Not a cap — teams may grow to
+  /// MAX_BALLOT_OPTIONS regardless.
+  minMembersPerTeam: number;
   /// Players needed before anyone may start. Below the full lobby by default.
   minPlayers: number;
   mergeAt: number;
@@ -97,5 +99,9 @@ export function roundPhase(round: Round, nowSeconds: bigint, tallyGrace: bigint)
   if (nowSeconds < round.ballotClosesAt + tallyGrace) return "tally";
   return "tally";
 }
+
+/// The circuit's MAX_OPTIONS, mirrored from `SurvivalGame.MAX_BALLOT_OPTIONS`. The only ceiling on
+/// a team, because a council ballot puts one option per member on the ballot.
+export const MAX_TEAM_SIZE = 10;
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as Address;

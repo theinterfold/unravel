@@ -18,7 +18,7 @@ export default function Home() {
 
   const gameHref = `/plugins/${plugins[0]?.id ?? "game"}/#/`;
 
-  const seats = game ? game.config.teamCount * game.config.membersPerTeam : undefined;
+  const seats = game?.config.minPlayers;
   const taken = game?.alive.length;
   const left = seats !== undefined && taken !== undefined ? Math.max(0, seats - taken) : undefined;
   const inLobby = game?.stage === Stage.Lobby;
@@ -83,7 +83,7 @@ export default function Home() {
 
             <div className="un-grid-2 un-grid-2-wide" style={{ gap: 40 }}>
               <p className="un-prose" style={{ fontSize: 18, maxWidth: "none" }}>
-                {seats ?? "Twelve"} players, {game?.config.teamCount ?? "four"} tribes, one pot. You campaign in the
+                {seats ?? "A handful of"} players, {game?.config.teamCount ?? "four"} tribes, one pot. You campaign in the
                 open — permanent, attributable, deeply screenshot-able — and then vote by a secret ballot nobody can
                 open. Not the others. Not us. Get voted out and you don&apos;t go home: you join the jury, and the jury
                 picks who walks away rich. So do think about whose feelings you are stamping on.
@@ -126,7 +126,7 @@ export default function Home() {
           {/* Omitted rather than shown raw: an unformatted pot is base units, which reads as noise. */}
           <Stat
             figure={feeToken.format(game?.pot) ?? "—"}
-            note={`${feeToken.symbol ? feeToken.symbol + " in the pot" : "in the pot"}, going to exactly one of them`}
+            note={`${feeToken.symbol ? `${feeToken.symbol} in the pot` : "in the pot"}, going to exactly one of them`}
           />
           <Stat figure="0" note="people who can see how you voted. Including us. Forever." />
         </section>

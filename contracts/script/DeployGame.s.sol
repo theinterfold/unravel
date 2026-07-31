@@ -62,11 +62,13 @@ contract DeployGame is Script {
 
     /// @dev Split out to keep `run` under the stack limit.
     ///
-    ///      Both `TEAM_COUNT` and `MEMBERS_PER_TEAM` are ballot option counts, so both are capped at
-    ///      10 by the CRISP circuit — that is what lets 10x10 support 100 players while every ballot
-    ///      stays provable. `MIN_PLAYERS` is the floor the lobby must reach before anyone can start;
-    ///      it defaults well below a full lobby, because waiting for every seat makes the game
-    ///      hostage to the slowest joiner. Set it to TEAM_COUNT * MEMBERS_PER_TEAM to require all. `CAMPAIGN_DURATION` has a floor set by the network: the ballot window
+    ///      `TEAM_COUNT` is a ballot option count, so it is capped at 10 by the CRISP circuit — and
+    ///      so is team size, because a council round puts one option per member on the ballot. That
+    ///      is what lets 10x10 support 100 players while every ballot stays provable.
+    ///
+    ///      `MIN_MEMBERS_PER_TEAM` is a floor, not a ceiling: teams may grow to 10 regardless of it,
+    ///      and it only decides whether the lobby is balanced enough to start. `MIN_PLAYERS` is the
+    ///      matching floor on the whole lobby. `CAMPAIGN_DURATION` has a floor set by the network: the ballot window
     ///      opens when it ends, and committee sortition plus the DKG have to fit inside it (~290s
     ///      measured on a local devnet).
     function _config() internal view returns (SurvivalGame.Config memory) {
@@ -75,7 +77,11 @@ contract DeployGame is Script {
             ballotDuration: uint64(vm.envOr("BALLOT_DURATION", uint256(3 hours))),
             tallyGrace: uint64(vm.envOr("TALLY_GRACE", uint256(1 hours))),
             teamCount: uint8(vm.envOr("TEAM_COUNT", uint256(4))),
-            membersPerTeam: uint8(vm.envOr("MEMBERS_PER_TEAM", uint256(3))),
+            // MEMBERS_PER_TEAM is the old name for the same knob, honoured so existing .env files
+            // keep working rather than silently falling back to the default.
+            minMembersPerTeam: uint8(
+                vm.envOr("MIN_MEMBERS_PER_TEAM", vm.envOr("MEMBERS_PER_TEAM", uint256(2)))
+            ),
             minPlayers: uint8(vm.envOr("MIN_PLAYERS", uint256(4))),
             mergeAt: uint8(vm.envOr("MERGE_AT", uint256(6))),
             finalists: uint8(vm.envOr("FINALISTS", uint256(2))),
