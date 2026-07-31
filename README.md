@@ -249,6 +249,25 @@ Two things this is deliberately _not_:
   is an N-way election, which would need one proposal per candidate per round. `PublicImmunityVote`
   votes directly against the same `ERC20Votes` roster token a plugin would have used.
 
+## Deploying the frontend
+
+`vercel.json` at the repo root points Vercel at `app/`, so importing the repo works with no
+dashboard configuration. If you instead set the project's Root Directory to `app`, Vercel reads
+`app/vercel.json` and ignores the root one — the two are kept in sync deliberately, because Vercel
+reads exactly one of them and the wrong one silently means no headers.
+
+The COOP/COEP headers in both are load-bearing rather than hardening: bb.js needs
+`SharedArrayBuffer` for threaded proving, which browsers only expose to cross-origin-isolated pages.
+Drop them and sealing a ballot fails in production while working locally.
+
+Their cost is that every cross-origin subresource must then be CORS-fetched, which is why the font
+links carry `crossOrigin`. Anything else added from another origin needs the same treatment or it
+will silently not load.
+
+Environment variables are not committed — set them in the Vercel dashboard. `app/.env.example` lists
+them; `PINATA_JWT` is the only server-only one, and a `NEXT_PUBLIC_` prefix on it would inline the
+credential into the client bundle.
+
 ## Running it under a DAO
 
 `SurvivalGame` is `Ownable`, so a DAO can hold ownership and therefore the abort/sweep/immunity
