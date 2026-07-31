@@ -93,10 +93,9 @@ export default function GamePage() {
   const owes = owesCheckIn || owesBallot;
 
   const secondsLeft = round && inBallot ? round.ballotClosesAt - now : 0n;
-  // `settleRound` reverts until the ballot has closed and the grace has passed, so offering it
-  // before then is offering a button whose only outcome is a revert. The contract is the authority;
-  // this mirrors its condition rather than guessing at it.
-  const settleDue = !!round && !round.settled && now >= round.ballotClosesAt + game.config.tallyGrace;
+  // Mirrors the contract: settling waits on the tally existing, not on a clock. The only clock
+  // condition left is that the ballot has closed — nobody settles a round people can still vote in.
+  const settleDue = !!round && !round.settled && now >= round.ballotClosesAt && !!pendingTally;
   const takeover = isAlive && shouldTakeOver(checkIn, secondsLeft);
 
   // Every write goes through here so a revert becomes a sentence rather than an unhandled promise
@@ -315,11 +314,9 @@ export default function GamePage() {
               </button>
             )}
             <span className="un-fine">
-              {settleDue && pendingTally
+              {settleDue
                 ? "The counts are decrypted and on chain. Settling applies them — anyone can, and the result will not change."
-                : settleDue
-                  ? "The round can be settled once the committee publishes. Anyone can do it — it is a clock, not a privilege."
-                  : "Anyone can settle a round or open the next one. It is a clock, not a privilege."}
+                : "Anyone can settle a round or open the next one. It is a clock, not a privilege."}
             </span>
           </div>
         )}

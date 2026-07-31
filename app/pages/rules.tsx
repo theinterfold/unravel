@@ -63,7 +63,7 @@ export default function RulesPage() {
           <Phase
             name="Tally"
             length={cfg ? duration(cfg.tallyGrace) : undefined}
-            body="The counts come back and somebody goes home. Only the totals are ever revealed — never who cast what."
+            body="The counts come back and somebody goes home, as soon as the committee publishes them. Only the totals are ever revealed — never who cast what. The window is a deadline, not a delay: if the committee never delivers, the round can be abandoned once it expires."
           />
           <p className="un-note">
             The sealed ballots appear on chain as they land, and none of them can be read. That list is not turnout: a

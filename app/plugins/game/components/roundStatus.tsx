@@ -244,7 +244,7 @@ function phaseCaption(
     case "ballot":
       return "Calm — you owe nothing";
     case "tally":
-      if (remaining > 0n) return "Until the round can settle";
+      if (remaining > 0n) return tallyReady ? "Counts are in — anyone can settle this round" : "Until the round may be abandoned";
       // Two very different waits, and conflating them is what made a finished round look stuck.
       return tallyReady
         ? "Counts are in — anyone can settle this round"

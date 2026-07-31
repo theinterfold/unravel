@@ -587,6 +587,50 @@ contract SurvivalGameTest is Test {
 
     // ─── Settlement rules ────────────────────────────────────────────────────────────────────
 
+    /// @dev The point of settling on data rather than on a clock: a committee that publishes early
+    ///      should not leave the round sitting out the rest of the grace window.
+    function test_settle_assoonAsTheTallyExists() public {
+        _start();
+        (, uint256 proposalId,,,,,,,) = game.getRound(0);
+        uint256[] memory counts = new uint256[](TEAMS);
+        counts[1] = 3;
+        plugin.setTally(proposalId, counts);
+
+        // Ballot closed, but well inside the grace window.
+        (,,,,, uint64 ballotClosesAt,,,) = game.getRound(0);
+        vm.warp(ballotClosesAt + 1);
+
+        game.settleRound();
+
+        (,,,,,, bool settled,, uint8 target) = game.getRound(0);
+        assertTrue(settled);
+        assertEq(target, 2, "the condemned tribe is the one the tally chose");
+    }
+
+    /// @dev A clock is still required for one thing: no settling while people can still vote.
+    function test_settle_rejectedWhileTheBallotIsOpen() public {
+        _start();
+        (, uint256 proposalId,,,,,,,) = game.getRound(0);
+        uint256[] memory counts = new uint256[](TEAMS);
+        counts[0] = 1;
+        plugin.setTally(proposalId, counts);
+
+        (,,,,, uint64 ballotClosesAt,,,) = game.getRound(0);
+        vm.warp(ballotClosesAt - 1);
+
+        vm.expectRevert(abi.encodeWithSelector(SurvivalGame.BallotStillOpen.selector, ballotClosesAt));
+        game.settleRound();
+    }
+
+    /// @dev And an unpublished tally says so, rather than reporting a length mismatch against zero.
+    function test_settle_rejectedWhenTheTallyIsNotPublished() public {
+        _start();
+        _warpToSettle();
+
+        vm.expectRevert(SurvivalGame.TallyNotPublished.selector);
+        game.settleRound();
+    }
+
     function test_settle_voidsWhenNobodyVoted() public {
         _start();
         (, uint256 proposalId,,,,,,,) = game.getRound(0);
@@ -612,12 +656,30 @@ contract SurvivalGameTest is Test {
         assertEq(uint8(_kind(1)), uint8(SurvivalGame.RoundKind.Tribal));
     }
 
-    function test_settle_revertsBeforeTallyIsDue() public {
+    /// @dev `tallyGrace` moved from a delay before settling to a deadline for giving up. Abandoning a
+    ///      round the committee never delivered is still gated on it — that is the whole reason the
+    ///      window exists, and abandoning early would discard a tally that was merely slow.
+    function test_abort_revertsBeforeTheGraceHasPassed() public {
         _start();
         (,,,,, uint64 closesAt,,,) = game.getRound(0);
         vm.warp(closesAt + GRACE - 1);
+
+        vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(SurvivalGame.TallyNotDue.selector, closesAt + GRACE));
-        game.settleRound();
+        game.abortRound();
+    }
+
+    function test_abort_allowedOnceTheGraceHasPassed() public {
+        _start();
+        (,,,,, uint64 closesAt,,,) = game.getRound(0);
+        vm.warp(closesAt + GRACE);
+
+        vm.prank(owner);
+        game.abortRound();
+
+        (,,,,,, bool settled,, uint8 target) = game.getRound(0);
+        assertTrue(settled);
+        assertEq(target, 0, "an abandoned tribal round convenes no council");
     }
 
     function test_settle_revertsOnTallyLengthMismatch() public {

@@ -61,7 +61,11 @@ function describe(name: string, args: readonly unknown[]): string | undefined {
     case "RoundAlreadySettled":
       return "This round has already settled.";
     case "TallyNotDue":
-      return "The tally window has not closed yet. The round can be settled once it does.";
+      return "The round cannot be abandoned yet — the committee still has time to publish.";
+    case "BallotStillOpen":
+      return "The ballot is still open. A round cannot be settled while people can still vote.";
+    case "TallyNotPublished":
+      return "The committee has not published the counts yet. The round settles as soon as it does.";
     case "TallyLengthMismatch":
       return `The tally came back with ${n(1)} counts but this round has ${n(0)} options — the round cannot be settled from it.`;
     case "NotAVoter":

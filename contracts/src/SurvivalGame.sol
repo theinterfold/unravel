@@ -191,6 +191,8 @@ contract SurvivalGame is Ownable {
     error NotAVoter();
     error NotAlive();
     error TallyNotDue(uint64 until);
+    error BallotStillOpen(uint64 until);
+    error TallyNotPublished();
     error RoundAlreadySettled();
     error TallyLengthMismatch(uint256 expected, uint256 actual);
     error NoRounds();
@@ -489,17 +491,28 @@ contract SurvivalGame is Ownable {
 
     // ─── Settlement ──────────────────────────────────────────────────────────────────────────
 
-    /// @notice Settles the current round from the decrypted tally.
+    /// @notice Settles the current round from the decrypted tally, as soon as there is one.
     /// @dev Permissionless: the tally is public and the outcome is a pure function of it.
     function settleRound() external {
         uint256 roundId = _currentRoundId();
         Round storage round = rounds[roundId];
 
         if (round.settled) revert RoundAlreadySettled();
-        uint64 due = round.ballotClosesAt + config.tallyGrace;
-        if (block.timestamp < due) revert TallyNotDue(due);
+
+        // Settlement waits on the tally existing, not on a clock. The committee often publishes well
+        // inside `tallyGrace`, and making the round sit out the rest of the window served nobody: the
+        // counts are final the moment they are decrypted, so there is nothing a later block adds.
+        //
+        // `tallyGrace` is still meaningful — it is the deadline after which `abortRound` may abandon
+        // a round the committee never delivered. A deadline for giving up, rather than a delay
+        // before acting.
+        if (block.timestamp < round.ballotClosesAt) revert BallotStillOpen(round.ballotClosesAt);
 
         uint256[] memory counts = plugin.getTally(round.proposalId).counts;
+        // An unpublished tally reads as an empty array. Saying so plainly beats reporting a length
+        // mismatch against zero, which describes the symptom and not the cause.
+        if (counts.length == 0) revert TallyNotPublished();
+
         uint256 expected =
             round.kind == RoundKind.Tribal ? round.candidateTeams.length : round.candidates.length;
         if (counts.length != expected) revert TallyLengthMismatch(expected, counts.length);
