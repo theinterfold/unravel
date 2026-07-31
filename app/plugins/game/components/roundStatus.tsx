@@ -6,6 +6,9 @@ import { useE3State } from "../hooks/useE3State";
 interface RoundStatusProps {
   round: Round;
   tallyGrace: bigint;
+  /// True once the decrypted counts are on chain. Changes what the spent clock means: waiting on the
+  /// committee is not the same as waiting on somebody to press a button.
+  tallyReady?: boolean;
   /// Whether the connected player still owes an action this round. Drives the only alarm state the
   /// clock has — see below.
   owes?: boolean;
@@ -26,7 +29,7 @@ const PHASE_COPY: Record<RoundPhase, string> = {
 /// The clock only panics if the player still owes something. Voted and checked in? It stays green
 /// and quiet while everyone else sweats — that asymmetry is the reward for being organised, and it
 /// keeps the red state meaning exactly one thing.
-export const RoundStatus: FC<RoundStatusProps> = ({ round, tallyGrace, owes = false }) => {
+export const RoundStatus: FC<RoundStatusProps> = ({ round, tallyGrace, owes = false, tallyReady = false }) => {
   const now = useNow();
   const { e3, unavailable } = useE3State(round.e3Id);
 
@@ -84,9 +87,11 @@ export const RoundStatus: FC<RoundStatusProps> = ({ round, tallyGrace, owes = fa
             role="timer"
             aria-live="off"
           >
-            {remaining > 0n ? formatCountdown(remaining) : "—"}
+            {remaining > 0n ? formatCountdown(remaining) : spentLabel(phase, tallyReady)}
           </div>
-          <div className={`un-clock-cap ${owes ? "un-clock-cap-owed" : ""}`}>{phaseCaption(phase, owes, rush)}</div>
+          <div className={`un-clock-cap ${owes ? "un-clock-cap-owed" : ""}`}>
+            {phaseCaption(phase, owes, rush, remaining, tallyReady)}
+          </div>
         </div>
       )}
 
@@ -215,7 +220,22 @@ const Mark: FC<{ kind: RoundKind }> = ({ kind }): ReactNode => {
   }
 };
 
-function phaseCaption(phase: RoundPhase, owes: boolean, rush: boolean): string {
+/// What the big number says once there is nothing left to count down.
+///
+/// A spent clock showing an em dash reads as broken. The round is not stalled at that point — it is
+/// waiting on a transaction anyone can send.
+function spentLabel(phase: RoundPhase, tallyReady: boolean): string {
+  if (phase !== "tally") return "—";
+  return tallyReady ? "READY" : "WAITING";
+}
+
+function phaseCaption(
+  phase: RoundPhase,
+  owes: boolean,
+  rush: boolean,
+  remaining: bigint,
+  tallyReady: boolean
+): string {
   if (rush) return "Under 90s — you still owe";
   if (owes) return "You still owe something";
   switch (phase) {
@@ -224,7 +244,11 @@ function phaseCaption(phase: RoundPhase, owes: boolean, rush: boolean): string {
     case "ballot":
       return "Calm — you owe nothing";
     case "tally":
-      return "Until the round can settle";
+      if (remaining > 0n) return "Until the round can settle";
+      // Two very different waits, and conflating them is what made a finished round look stuck.
+      return tallyReady
+        ? "Counts are in — anyone can settle this round"
+        : "Waiting for the committee to publish the counts";
     default:
       return "Settled";
   }

@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 import type { Address } from "viem";
 import { RoundKind, votesOnTeams, type Round } from "../utils/gameTypes";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
@@ -7,6 +7,9 @@ import type { TallyOutcome } from "../hooks/useTally";
 interface RevealProps {
   round: Round;
   outcome: TallyOutcome | undefined;
+  /// Counts read straight from the plugin, for the window between the committee publishing and
+  /// anyone calling `settleRound`. Ignored once the round has settled and the events exist.
+  pending?: bigint[];
   self?: Address;
 }
 
@@ -15,7 +18,22 @@ interface RevealProps {
 /// The bars slam in from zero, 120ms apart, in the order the contract emitted them — the only
 /// motion in the game that carries information. Total ballots cast is stated *after* the reveal and
 /// never before, because before decryption that number does not exist.
-export const Reveal: FC<RevealProps> = ({ round, outcome, self }) => {
+export const Reveal: FC<RevealProps> = ({ round, outcome, pending, self }) => {
+  // Decrypted but not yet acted on. Showing it here rather than waiting is the difference between a
+  // round that has visibly finished and one that looks stuck.
+  if (!round.settled && pending) {
+    return (
+      <Counts
+        round={round}
+        counts={pending}
+        self={self}
+        label={`Round ${String(round.id + 1).padStart(2, "0")} · tally · decrypted`}
+        heading={<>The votes are in.</>}
+        footer="Nobody has settled the round yet. Settling applies this result — anyone can do it, and the numbers will not change."
+      />
+    );
+  }
+
   if (!outcome) {
     return (
       <section className="un-panel un-stack">
@@ -51,7 +69,27 @@ export const Reveal: FC<RevealProps> = ({ round, outcome, self }) => {
     );
   }
 
-  const counts = outcome.counts;
+  return (
+    <Counts
+      round={round}
+      counts={outcome.counts}
+      self={self}
+      label={`Round ${String(round.id + 1).padStart(2, "0")} · tally · decrypted`}
+      heading={verdict(round, outcome)}
+    />
+  );
+};
+
+/// The bars. Shared by the settled and not-yet-settled cases so they cannot drift apart — the
+/// numbers are identical, only the sentence above them differs.
+const Counts: FC<{
+  round: Round;
+  counts: bigint[];
+  self?: Address;
+  label: string;
+  heading: ReactNode;
+  footer?: string;
+}> = ({ round, counts, self, label, heading, footer }) => {
   const total = counts.reduce((a, b) => a + b, 0n);
   const max = counts.reduce((a, b) => (b > a ? b : a), 0n);
   const leaders = counts.filter((c) => c === max && c > 0n).length;
@@ -59,9 +97,9 @@ export const Reveal: FC<RevealProps> = ({ round, outcome, self }) => {
 
   return (
     <section className="un-panel un-stack">
-      <div className="un-label-dim">Round {String(round.id + 1).padStart(2, "0")} · tally · decrypted</div>
+      <div className="un-label-dim">{label}</div>
 
-      <h2 className="un-verdict">{verdict(round, outcome)}</h2>
+      <h2 className="un-verdict">{heading}</h2>
 
       <div className="un-stack" style={{ gap: 14 }}>
         {counts.map((count, i) => {
@@ -80,7 +118,6 @@ export const Reveal: FC<RevealProps> = ({ round, outcome, self }) => {
                 </span>
                 <span className="un-tally-count">{count.toString()}</span>
               </div>
-              {/* Same delay as the row, so the bar grows with its label rather than ahead of it. */}
               <div
                 className="un-tally-bar"
                 style={{ width: `${Math.max(3, width)}%`, animationDelay: `${i * 120}ms` }}
@@ -93,7 +130,8 @@ export const Reveal: FC<RevealProps> = ({ round, outcome, self }) => {
       <p className="un-fine">
         {total.toString()} ballot{total === 1n ? "" : "s"} counted.
         {leaders > 1 &&
-          " Tied at the top — the winner was drawn from the tied options using the tally itself, so the draw is fixed and anyone can recompute it."}
+          " Tied at the top — the winner is drawn from the tied options using the tally itself, so the draw is fixed and anyone can recompute it."}
+        {footer ? ` ${footer}` : ""}
       </p>
     </section>
   );

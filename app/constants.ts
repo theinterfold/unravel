@@ -21,6 +21,8 @@ export const PUB_ENABLE_FAUCET =
 // and accepts encrypted ballots.
 export const PUB_CRISP_SERVER_URL = (process.env.NEXT_PUBLIC_CRISP_SERVER_URL ?? "") as string;
 // The CRISP E3 program contract — decodes the decrypted tally.
+export const PUB_CRISP_VOTING_PLUGIN_ADDRESS = (process.env.NEXT_PUBLIC_CRISP_VOTING_PLUGIN_ADDRESS ??
+  "") as Address;
 export const PUB_CRISP_PROGRAM_ADDRESS = (process.env.NEXT_PUBLIC_CRISP_PROGRAM_ADDRESS ?? "") as Address;
 export const PUB_INTERFOLD_ADDRESS = (process.env.NEXT_PUBLIC_INTERFOLD_ADDRESS ?? "") as Address;
 

@@ -6,6 +6,7 @@ import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 import { useGame, useRound, useCurrentRoundId, useTeams } from "../hooks/useGame";
 import { useCheckIn } from "../hooks/useCheckIn";
 import { useTally, usePrize } from "../hooks/useTally";
+import { useLiveTally } from "../hooks/useLiveTally";
 import { useSealedLocally } from "../hooks/useSealedLocally";
 import { useFeeToken } from "../hooks/useFeeToken";
 import { Roster } from "../components/roster";
@@ -37,6 +38,8 @@ export default function GamePage() {
   const checkIn = useCheckIn(address, roundId, game?.config.maxMissedCheckIns ?? 0);
   const { outcome } = useTally(roundId, round?.settled ?? false);
   const prize = usePrize(game?.stage === Stage.Ended);
+  // Read only while a round is open: once settled, the events are the better source.
+  const pendingTally = useLiveTally(round?.proposalId, !!round && !round.settled);
   const { sealed, markSealed } = useSealedLocally(round?.e3Id);
   const feeToken = useFeeToken();
 
@@ -203,7 +206,14 @@ export default function GamePage() {
           </section>
         )}
 
-        {round && <RoundStatus round={round} tallyGrace={game.config.tallyGrace} owes={owes} />}
+        {round && (
+          <RoundStatus
+            round={round}
+            tallyGrace={game.config.tallyGrace}
+            owes={owes}
+            tallyReady={!!pendingTally}
+          />
+        )}
 
         {isAlive && round && !round.settled && !checkIn.immature && (
           <CheckIn state={checkIn} secondsLeft={secondsLeft} />
@@ -220,7 +230,9 @@ export default function GamePage() {
           />
         )}
 
-        {round?.settled && <Reveal round={round} outcome={outcome} self={address} />}
+        {round && (round.settled || pendingTally) && (
+          <Reveal round={round} outcome={outcome} pending={pendingTally} self={address} />
+        )}
 
         {/* Shown from the moment a round opens, and kept after it settles: the ciphertexts are the
             public half of a private ballot, and seeing them accumulate is what makes the privacy
@@ -277,9 +289,11 @@ export default function GamePage() {
         {round && (
           <div className="un-row">
             {!round.settled && (
+              // Promoted once the counts exist: at that point settling is the only thing left to do,
+              // and burying it reads as the round being stuck rather than waiting on a click.
               <button
                 type="button"
-                className="un-btn un-btn-ghost un-btn-sm"
+                className={pendingTally ? "un-btn" : "un-btn un-btn-ghost un-btn-sm"}
                 disabled={isPending}
                 onClick={() => void call("settleRound")}
               >
@@ -296,7 +310,11 @@ export default function GamePage() {
                 Open the next round
               </button>
             )}
-            <span className="un-fine">Anyone can do this. It is a clock, not a privilege.</span>
+            <span className="un-fine">
+              {pendingTally && !round.settled
+                ? "The counts are decrypted and on chain. Settling applies them — anyone can, and the result will not change."
+                : "Anyone can do this. It is a clock, not a privilege."}
+            </span>
           </div>
         )}
       </div>
