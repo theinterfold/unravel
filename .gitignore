@@ -1,5 +1,7 @@
 
 .devnet.env
+.env.bak
+*.bak
 .DS_Store
 .env
 .sepolia.env

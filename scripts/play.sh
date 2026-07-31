@@ -204,6 +204,8 @@ echo "  $ROOT/.devnet.env"
 # into the on-chain fallback without anyone noticing.
 PINATA_JWT="$(sed -n 's/^PINATA_JWT=//p' "$ROOT/app/.env" 2>/dev/null | head -1)"
 step "writing app/.env"
+# Gitignored: the backup inherits every credential the live file has, and a tracked copy of
+# app/.env is a leak with an extra step.
 [ -f "$ROOT/app/.env" ] && cp "$ROOT/app/.env" "$ROOT/app/.env.bak"
 
 cat > "$ROOT/app/.env" <<EOF
