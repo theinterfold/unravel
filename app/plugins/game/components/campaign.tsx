@@ -1,6 +1,6 @@
-import { useState, type FC } from "react";
+import { useEffect, useState, type FC } from "react";
 import type { Address } from "viem";
-import { uploadToPinata } from "@/utils/ipfs";
+import { uploadToPinata, fetchIpfsAsJson } from "@/utils/ipfs";
 import { useAlerts } from "@/context/Alerts";
 import { useCampaignFeed, useCampaignActions } from "../hooks/useCampaign";
 import { shortAddress, sameAddress } from "../utils/tribes";
@@ -26,10 +26,29 @@ export const Campaign: FC<CampaignProps> = ({ round, canPost, self, closed }) =>
   const [draft, setDraft] = useState("");
 
   const submit = async () => {
-    if (!draft.trim()) return;
+    const body = draft.trim();
+    if (!body) return;
+
     try {
-      const cid = await uploadToPinata(JSON.stringify({ body: draft, round }));
-      await post(cid);
+      let pointer: string;
+      try {
+        pointer = await uploadToPinata(JSON.stringify({ body, round }));
+      } catch (e) {
+        // Pinning is optional. Without a PINATA_JWT the post goes on chain inline instead — the
+        // event already makes it permanent and attributable either way, and IPFS is a size and gas
+        // optimisation rather than the thing that gives a post its weight. Only this specific
+        // failure falls back; a real pinning outage still surfaces, because silently changing where
+        // data lives is worse than saying so.
+        if (!isPinningUnconfigured(e)) throw e;
+        if (body.length > INLINE_LIMIT) {
+          throw new Error(
+            `Pinning is not configured, so posts are stored on chain and capped at ${INLINE_LIMIT} characters. This one is ${body.length}.`
+          );
+        }
+        pointer = `${INLINE_PREFIX}${body}`;
+      }
+
+      await post(pointer);
       setDraft("");
       addAlert("Posted.", { type: "success", timeout: 3000 });
     } catch (e) {
@@ -70,7 +89,10 @@ export const Campaign: FC<CampaignProps> = ({ round, canPost, self, closed }) =>
             >
               {isPending ? "Posting…" : "Post"}
             </button>
-            <span className="un-fine">Signed, permanent, and on the record.</span>
+            <span className="un-fine">
+              Signed, permanent, and on the record.
+              {draft.trim().length > 0 && ` ${draft.trim().length}/${INLINE_LIMIT} if stored on chain.`}
+            </span>
           </div>
         </div>
       )}
@@ -97,13 +119,49 @@ export const Campaign: FC<CampaignProps> = ({ round, canPost, self, closed }) =>
   );
 };
 
-/// Posts are stored off-chain; the event only carries the pointer.
+/// Inline posts are prefixed so a reader can tell them from an IPFS pointer without guessing at the
+/// shape of a CID.
+const INLINE_PREFIX = "text:";
+/// Inline posts are calldata, so they are capped. Generous enough for a case, short enough that a
+/// player cannot accidentally spend a fortune making it.
+const INLINE_LIMIT = 500;
+
+function isPinningUnconfigured(error: unknown): boolean {
+  return error instanceof Error && /not configured/i.test(error.message);
+}
+
+/// What a player actually wrote.
 ///
-/// The CID is rendered as the CID rather than dressed up as a message, because fetching it is a
-/// separate concern and a half-loaded feed that silently shows nothing is worse than one that shows
-/// exactly what the chain has.
-const CampaignBody: FC<{ cid: string }> = ({ cid }) => (
-  <p className="un-mono" style={{ fontSize: 12, wordBreak: "break-all", color: "var(--un-fg-3)" }}>
-    {cid}
-  </p>
-);
+/// Two storage shapes reach this: an inline post, which is already the text, and an IPFS pointer,
+/// which has to be fetched. A failed fetch falls back to showing the raw pointer rather than an
+/// empty bubble — the chain's record is still there even when the gateway is not.
+const CampaignBody: FC<{ cid: string }> = ({ cid }) => {
+  const inline = cid.startsWith(INLINE_PREFIX);
+  const [body, setBody] = useState<string | undefined>(inline ? cid.slice(INLINE_PREFIX.length) : undefined);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (inline) return;
+    let cancelled = false;
+
+    fetchIpfsAsJson(cid)
+      .then((data: { body?: string }) => {
+        if (!cancelled) setBody(typeof data?.body === "string" ? data.body : undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cid, inline]);
+
+  if (body) return <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--un-fg-2)" }}>{body}</p>;
+
+  return (
+    <p className="un-mono" style={{ fontSize: 12, wordBreak: "break-all", color: "var(--un-dim)" }}>
+      {failed ? `unreachable · ${cid}` : `loading · ${cid}`}
+    </p>
+  );
+};
