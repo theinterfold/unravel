@@ -75,7 +75,10 @@ TEAM_COUNT="${TEAM_COUNT:-4}"
 MEMBERS_PER_TEAM="${MEMBERS_PER_TEAM:-3}"
 # The lobby floor. Well below a full lobby on purpose: waiting for every seat makes the game hostage
 # to the slowest joiner. Must exceed MERGE_AT for tribal rounds to happen at all.
-MIN_PLAYERS="${MIN_PLAYERS:-8}"
+ROSTER=$((TEAM_COUNT * MEMBERS_PER_TEAM))
+# Capped at the roster, because a floor above the lobby can never be reached and the contract
+# rejects it outright. A fixed default of 8 silently broke every roster smaller than that.
+MIN_PLAYERS="${MIN_PLAYERS:-$((ROSTER < 8 ? ROSTER : 8))}"
 MERGE_AT="${MERGE_AT:-6}"
 FINALISTS="${FINALISTS:-2}"
 CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-900}" # 15m
@@ -147,6 +150,34 @@ cast code "$INTERFOLD_ADDRESS" --rpc-url "$RPC" 2>/dev/null | grep -q "^0x." ||
   fail "no contract at INTERFOLD_ADDRESS $INTERFOLD_ADDRESS on this chain"
 cast code "$CRISP_PROGRAM" --rpc-url "$RPC" 2>/dev/null | grep -q "^0x." ||
   fail "no contract at CRISP_PROGRAM_ADDRESS $CRISP_PROGRAM on this chain"
+
+# ─── Round shape ────────────────────────────────────────────────────────────────────────────────
+#
+# Mirrors `SurvivalGame`'s constructor checks. The contract is the authority, but it reverts with a
+# bare `InvalidConfig()` that names no field — so the same rules are restated here purely to say
+# which knob is wrong, and after a deploy has already spent gas on tokens and the plugin.
+cfg_fail() { fail "round shape rejected: $1
+       team_count=$TEAM_COUNT members_per_team=$MEMBERS_PER_TEAM (roster $ROSTER)
+       min_players=$MIN_PLAYERS merge_at=$MERGE_AT finalists=$FINALISTS"; }
+
+[ "$FINALISTS" -ge 2 ] || cfg_fail "FINALISTS must be at least 2 — a jury needs two names to choose between"
+[ "$TEAM_COUNT" -ge 2 ] || cfg_fail "TEAM_COUNT must be at least 2"
+[ "$TEAM_COUNT" -le 10 ] || cfg_fail "TEAM_COUNT must be at most 10 (the circuit's MAX_OPTIONS)"
+[ "$MEMBERS_PER_TEAM" -ge 1 ] || cfg_fail "MEMBERS_PER_TEAM must be at least 1"
+[ "$MEMBERS_PER_TEAM" -le 10 ] || cfg_fail "MEMBERS_PER_TEAM must be at most 10 (the circuit's MAX_OPTIONS)"
+[ "$MERGE_AT" -le 10 ] || cfg_fail "MERGE_AT must be at most 10"
+[ "$MERGE_AT" -ge "$FINALISTS" ] || cfg_fail "MERGE_AT must be at least FINALISTS"
+[ "$ROSTER" -gt "$FINALISTS" ] || cfg_fail "the roster must exceed FINALISTS, or the game starts already over"
+[ "$MIN_PLAYERS" -gt "$FINALISTS" ] || cfg_fail "MIN_PLAYERS must exceed FINALISTS, or the game starts already over"
+[ "$MIN_PLAYERS" -le "$ROSTER" ] || cfg_fail "MIN_PLAYERS ($MIN_PLAYERS) is above the roster ($ROSTER) — a floor that can never be reached"
+
+# Not a contract rule, but the thing most likely to disappoint: `_nextKind` checks the merge before
+# team count, so a floor at or below MERGE_AT means the game is post-merge from round one and no
+# tribal or council round ever happens.
+if [ "$MIN_PLAYERS" -le "$MERGE_AT" ]; then
+  printf '\033[33m>>> note: MIN_PLAYERS (%s) <= MERGE_AT (%s) — tribes dissolve immediately, every round is an individual vote\033[0m\n' \
+    "$MIN_PLAYERS" "$MERGE_AT"
+fi
 
 step "targets"
 echo "  interfold    $INTERFOLD_ADDRESS"
