@@ -85,9 +85,21 @@ CAPACITY=$((TEAM_COUNT * MAX_TEAM_SIZE))
 MIN_PLAYERS="${MIN_PLAYERS:-$((TEAM_COUNT * MIN_MEMBERS_PER_TEAM))}"
 MERGE_AT="${MERGE_AT:-6}"
 FINALISTS="${FINALISTS:-2}"
-CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-900}" # 15m
-BALLOT_DURATION="${BALLOT_DURATION:-1800}"    # 30m
-TALLY_GRACE="${TALLY_GRACE:-600}"             # 10m
+# Shape: the ballot is roughly three times the campaign, and that asymmetry is deliberate.
+#
+# The campaign window has two jobs — people talking, and sortition plus the DKG finishing — and the
+# second sets a hard floor on it. Below that floor the ballot opens against a committee key that does
+# not exist yet, so shortening the campaign does not buy voting time, it destroys it.
+#
+# The ballot window has one job and it is slow: every voter spends 45-90s generating a proof, in a
+# browser, and anyone driving several wallets does it sequentially. That is what needs room.
+#
+# A longer input window does raise the E3 fee — Interfold prices availability per node per second —
+# but only slightly: at the Minimum committee it is about 150 fee-token units a second, so an extra
+# fifteen minutes costs roughly 1% of a ~14-token round.
+CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-900}"  # 15m — floored by sortition + DKG, not by taste
+BALLOT_DURATION="${BALLOT_DURATION:-2700}"     # 45m — floored by browser proving, per voter
+TALLY_GRACE="${TALLY_GRACE:-600}"              # 10m
 MAX_MISSED_CHECKINS="${MAX_MISSED_CHECKINS:-2}"
 ENTRY_FEE="${ENTRY_FEE:-0}"
 

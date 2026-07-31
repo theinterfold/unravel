@@ -31,8 +31,20 @@ ROSTER=$MIN_PLAYERS
 # Long by default. The committee key takes ~290s to publish, and the ballot window has to fit a
 # human driving several wallets through browser proof generation at ~45-90s each — a window sized
 # for a script is unusable by hand.
+# Shape: the ballot is roughly three times the campaign, and that asymmetry is deliberate.
+#
+# The campaign window has two jobs — people talking, and sortition plus the DKG finishing — and the
+# second sets a hard floor on it. Below that floor the ballot opens against a committee key that does
+# not exist yet, so shortening the campaign does not buy voting time, it destroys it.
+#
+# The ballot window has one job and it is slow: every voter spends 45-90s generating a proof, in a
+# browser, and anyone driving several wallets does it sequentially. That is what needs room.
+#
+# A longer input window does raise the E3 fee — Interfold prices availability per node per second —
+# but only slightly: at the Minimum committee it is about 150 fee-token units a second, so an extra
+# fifteen minutes costs roughly 1% of a ~14-token round.
 CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-900}"
-BALLOT_DURATION="${BALLOT_DURATION:-900}"
+BALLOT_DURATION="${BALLOT_DURATION:-2700}"
 TALLY_GRACE="${TALLY_GRACE:-300}"
 
 START_APP=true

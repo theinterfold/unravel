@@ -174,7 +174,11 @@ failures are a service being down or a wallet on the wrong port, not a contract 
 
 **The ballot is unavailable for the first ~5 minutes of a round.** The committee key takes ~290s to
 publish and nothing can be encrypted before it exists — that is the campaign phase doing its job,
-not a hang. Windows default to 900s each so there is time to drive several wallets by hand.
+not a hang. The E3 is requested when the round opens, precisely so sortition and the DKG run while
+people are talking rather than while they are trying to vote.
+
+That is also why the ballot window defaults to about three times the campaign. The campaign has a
+floor set by the network; the ballot has one set by people, at 45-90s of browser proving each.
 
 Two devnets cannot safely share a machine: CRISP's own `dev.sh` tears down with `pkill -f anvil`,
 which matches by process name and kills every chain running. Run beside an existing devnet with
