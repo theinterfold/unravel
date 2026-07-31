@@ -78,8 +78,20 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
     /// @notice The ABI encoded compute provider parameters
     bytes private computeProviderParams;
 
-    /// @notice Contract answering `getCensus(e3Id)` on this plugin's behalf. Zero disables it.
+    /// @notice Fallback contract answering `getCensus(e3Id)` on this plugin's behalf. Zero disables
+    /// it. Consulted only when a round has no provider of its own — see `censusProviderOf`.
     address public censusProvider;
+
+    /// @notice The census provider for a given E3: whoever created the proposal that requested it.
+    /// @dev A single global provider makes one plugin serve exactly one app. The coordination server
+    ///      asks the E3's requester — this plugin — who may vote, so with two apps sharing a plugin
+    ///      one of them silently gets an empty census and falls back to token-holder discovery,
+    ///      which is wrong for any roster that changes between rounds.
+    ///
+    ///      Recording the creator per round makes the answer per round. Anyone may create a proposal
+    ///      and thereby answer for their own rounds, which grants nothing: a creator could already
+    ///      have chosen that electorate by passing it as the round's voters.
+    mapping(uint256 e3Id => address provider) public censusProviderOf;
 
     /// @notice Disables the initializers on the implementation contract to prevent
     /// it from being left uninitialized.
@@ -125,7 +137,12 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
     /// @param _e3Id The E3 whose electorate is being resolved.
     /// @return The eligible voters, or an empty array to use the default discovery path.
     function getCensus(uint256 _e3Id) external view returns (address[] memory) {
-        address provider = censusProvider;
+        // The round's own creator first; the global provider only as a fallback, which keeps
+        // single-app deployments that call `setCensusProvider` working unchanged.
+        address provider = censusProviderOf[_e3Id];
+        if (provider == address(0)) {
+            provider = censusProvider;
+        }
         if (provider == address(0)) {
             return new address[](0);
         }
@@ -235,6 +252,9 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
             proposal.allowFailureMap = _allowFailureMap;
             proposal.targetConfig = getTargetConfig();
             proposal.e3Id = e3Id;
+            // The creator answers for this round's electorate. Recorded here rather than configured
+            // later so there is no window in which a round exists with no provider.
+            censusProviderOf[e3Id] = _msgSender();
         }
 
         for (uint256 i = 0; i < _actions.length;) {

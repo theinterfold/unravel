@@ -42,4 +42,9 @@ interface ICrispVotingPlugin {
 
     /// @notice The E3 backing a proposal, needed to address the round off-chain.
     function getE3Id(uint256 proposalId) external view returns (uint256);
+
+    /// @notice Who answers `getCensus` for a given E3 — the address that created its proposal.
+    /// @dev Recorded by the plugin at creation, so a game answers for its own rounds and nothing
+    ///      else. One plugin can therefore serve any number of games.
+    function censusProviderOf(uint256 e3Id) external view returns (address);
 }
