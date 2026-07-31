@@ -20,7 +20,7 @@
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "app:dev": "cd app && bun dev",
-    "app:build": "cd app && bun run build",
+    "app:build": "cd app && NEXT_DIST_DIR=.next-build bun run build",
     "app:lint": "cd app && bun run lint",
     "app:typecheck": "cd app && npx tsc --noEmit",
     "check:encoding": "cd scripts/devnet && node check-encoding.mjs",
