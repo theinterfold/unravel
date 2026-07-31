@@ -1444,3 +1444,32 @@
   text-transform: uppercase;
   color: var(--un-dim-2);
 }
+
+/* Published ciphertexts — the cloud, listed. Mono throughout because every value here came from the
+   contract, and nothing in the row is allowed to hint at content. */
+.un-cipher-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--un-ink);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-family: var(--un-mono);
+  font-size: 11.5px;
+  flex-wrap: wrap;
+}
+.un-cipher-index {
+  color: var(--un-dim-2);
+  flex: 0 0 auto;
+}
+.un-cipher-hash {
+  color: var(--un-fg-4);
+}
+.un-cipher-tx {
+  margin-left: auto;
+  color: var(--un-sage);
+  text-decoration: none;
+}
+a.un-cipher-tx:hover {
+  color: var(--un-pistachio);
+}

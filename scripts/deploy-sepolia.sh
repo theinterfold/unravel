@@ -390,6 +390,10 @@ BALLOT_DURATION=$BALLOT_DURATION
 TALLY_GRACE=$TALLY_GRACE
 EOF
 
+# Carried over from the previous app/.env rather than regenerated: PINATA_JWT is a credential the
+# deploy has no way to know, and silently dropping it on every redeploy turns campaign posts back
+# into the on-chain fallback without anyone noticing.
+PINATA_JWT="$(sed -n 's/^PINATA_JWT=//p' "$ROOT/app/.env" 2>/dev/null | head -1)"
 step "writing app/.env"
 [ -f "$ROOT/app/.env" ] && cp "$ROOT/app/.env" "$ROOT/app/.env.bak"
 
@@ -409,7 +413,8 @@ NEXT_PUBLIC_CRISP_SERVER_URL=$CRISP_SERVER
 
 NEXT_PUBLIC_CHAIN_NAME=sepolia
 NEXT_PUBLIC_WEB3_ENDPOINT=$RPC
-NEXT_PUBLIC_SECONDS_PER_BLOCK=12
+${PINATA_JWT:+PINATA_JWT=$PINATA_JWT
+}NEXT_PUBLIC_SECONDS_PER_BLOCK=12
 EOF
 echo "  app/.env written (previous copy at app/.env.bak)"
 

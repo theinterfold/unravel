@@ -14,6 +14,7 @@ import { Campaign } from "../components/campaign";
 import { RoundStatus } from "../components/roundStatus";
 import { Reveal } from "../components/reveal";
 import { CheckIn, CheckInTakeover, shouldTakeOver } from "../components/checkIn";
+import { Ciphertexts } from "../components/ciphertexts";
 import { Finalists } from "../components/finalists";
 import { MAX_TEAM_SIZE, RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
@@ -220,6 +221,11 @@ export default function GamePage() {
         )}
 
         {round?.settled && <Reveal round={round} outcome={outcome} self={address} />}
+
+        {/* Shown from the moment a round opens, and kept after it settles: the ciphertexts are the
+            public half of a private ballot, and seeing them accumulate is what makes the privacy
+            legible rather than merely asserted. */}
+        {round && <Ciphertexts e3Id={round.e3Id} />}
 
         {round && !round.settled && canVote && (
           <Ballot round={round} canVote={canVote} self={address} onSealed={markSealed} />

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FC } from "react";
 import type { VotingStep } from "../utils/types";
 import { formatCountdown } from "../utils/tribes";
+import { PUB_CHAIN } from "@/constants";
 
 interface SealingProps {
   step: VotingStep;
@@ -78,10 +79,20 @@ export const Sealing: FC<SealingProps> = ({ step, message, txHash, ciphertext, o
           {txHash && (
             <div className="un-receipt-chain">
               tx {txHash}
-              <br />
-              <a href={`#tx-${txHash}`} onClick={(e) => e.preventDefault()}>
-                verify on chain →
-              </a>
+              {/* A real link where the chain has an explorer, and nothing where it does not — a
+                  "verify" affordance that goes nowhere is worse than no affordance. */}
+              {PUB_CHAIN.blockExplorers?.default.url && (
+                <>
+                  <br />
+                  <a
+                    href={`${PUB_CHAIN.blockExplorers.default.url}/tx/${txHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    verify on chain →
+                  </a>
+                </>
+              )}
             </div>
           )}
         </div>
