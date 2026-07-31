@@ -17,6 +17,7 @@ export const Navbar: React.FC = () => {
 
   const navLinks: INavLink[] = [
     { path: "/", id: "dashboard", name: "Home" },
+    { path: "/rules", id: "rules", name: "Rules" },
     ...plugins.map((p) => ({
       id: p.id,
       name: p.title,

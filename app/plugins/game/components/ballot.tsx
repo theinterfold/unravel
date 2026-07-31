@@ -42,6 +42,10 @@ const COPY: Record<RoundKind, { title: string; blurb: string }> = {
 /// cast against. Rendering straight from the round's own arrays keeps the two in step.
 export const Ballot: FC<BallotProps> = ({ round, canVote, self, onSealed }) => {
   const [selected, setSelected] = useState<number | null>(null);
+  // Whether the player has asked to revise a ballot they already sealed. "Change your vote" used to
+  // submit immediately, which re-sent the selection that was already sealed — the label promised a
+  // chance to choose and the button spent 45-90s re-sealing the same thing.
+  const [revising, setRevising] = useState(false);
   const { castBallot, castMask, isLoading, votingStep, stepMessage, error, txHash, ciphertext } = useCastBallot();
   const { e3 } = useE3State(round.e3Id);
 
@@ -58,8 +62,15 @@ export const Ballot: FC<BallotProps> = ({ round, canVote, self, onSealed }) => {
   // ballot is indistinguishable from a mask — so the client's own success is the only signal there
   // is.
   useEffect(() => {
-    if (sealed) onSealed?.();
+    if (sealed) {
+      onSealed?.();
+      setRevising(false);
+    }
   }, [sealed, onSealed]);
+
+  // A sealed ballot the player is not currently revising. While revising, the options come back and
+  // the receipt steps aside so the screen is about choosing again.
+  const showReceipt = sealed && !revising;
 
   return (
     <section className="un-panel un-stack">
@@ -115,21 +126,36 @@ export const Ballot: FC<BallotProps> = ({ round, canVote, self, onSealed }) => {
 
       {/* The sealing state replaces the controls entirely while it runs: there is nothing useful to
           press, and leaving a live button next to a minute of work invites a second click. */}
-      {(isLoading || sealed || votingStep === "error") && (
+      {(isLoading || showReceipt || votingStep === "error") && (
         <Sealing step={votingStep} message={stepMessage} txHash={txHash} ciphertext={ciphertext} />
       )}
 
       {!isLoading && (
         <>
           <div className="un-row">
-            <button
-              type="button"
-              className="un-btn"
-              disabled={selected === null || !ready}
-              onClick={() => selected !== null && castBallot(selected, round.e3Id)}
-            >
-              {sealed ? "Change your vote" : keyReady ? "Seal your ballot" : "Waiting for the committee"}
-            </button>
+            {showReceipt ? (
+              // Deliberately sends nothing: it reopens the choice, and the seal below is what costs
+              // a minute. Two steps, so re-sealing the same option is something a player decides to
+              // do rather than something a label tricks them into.
+              <button type="button" className="un-btn" disabled={!ready} onClick={() => setRevising(true)}>
+                Change your vote
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="un-btn"
+                disabled={selected === null || !ready}
+                onClick={() => selected !== null && castBallot(selected, round.e3Id)}
+              >
+                {keyReady ? (revising ? "Seal the new ballot" : "Seal your ballot") : "Waiting for the committee"}
+              </button>
+            )}
+
+            {revising && (
+              <button type="button" className="un-btn un-btn-ghost" onClick={() => setRevising(false)}>
+                Keep the one I sent
+              </button>
+            )}
 
             <button
               type="button"
@@ -142,9 +168,11 @@ export const Ballot: FC<BallotProps> = ({ round, canVote, self, onSealed }) => {
           </div>
 
           <p className="un-fine" style={{ maxWidth: "72ch" }}>
-            {sealed
-              ? "Sealing again replaces what you sent — the last ballot before the window closes is the one that counts. It costs another 45–90 seconds."
-              : "Sealing takes 45–90 seconds in your browser. You can change your vote until the window closes; the last one counts."}{" "}
+            {showReceipt
+              ? "Your ballot is sealed. You can replace it until the window closes — the last one is what counts."
+              : revising
+                ? "Pick again, then seal. This replaces what you already sent and costs another 45–90 seconds; nothing is sent until you seal."
+                : "Sealing takes 45–90 seconds in your browser. You can change your vote until the window closes; the last one counts."}{" "}
             A mask is a zero-vote dropped into someone else&apos;s slot. It changes no result, but it makes it
             impossible to prove which sealed ballot was anyone&apos;s — which is what stops votes being bought.
           </p>

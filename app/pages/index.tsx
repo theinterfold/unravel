@@ -62,6 +62,9 @@ export default function Home() {
               <Link href={gameHref} className="un-btn un-btn-ghost" style={{ textDecoration: "none" }}>
                 Just watch, coward
               </Link>
+              <Link href="/rules" className="un-btn un-btn-ghost" style={{ textDecoration: "none" }}>
+                Read the rules
+              </Link>
 
               {/* Real seats, not a scarcity prop. Absent entirely when there is no game to count. */}
               {inLobby && seats !== undefined && taken !== undefined && (
