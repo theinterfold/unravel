@@ -18,10 +18,34 @@ const PAGE = 12;
 ///      is deliberately a slight over-estimate so the warning errs towards "fund it more".
 const FEE_PER_E3 = 14;
 
-/// Rounds a game of `players` will need: two E3s per elimination down to two finalists, plus the
-/// jury round.
+const FINALISTS = 2;
+
+/// The knobs the form does not ask about, derived from the one it does.
+///
+/// `mergeAt` is capped at 6 so a long game still ends in a merge rather than staying tribal to the
+/// last four, and floored at 2 so it never sits below `finalists`, which the constructor rejects.
+function shapeFor(players: number) {
+  return {
+    teamCount: players >= 6 ? 3 : 2,
+    mergeAt: Math.max(FINALISTS, Math.min(players - 1, 6)),
+    finalists: FINALISTS,
+  };
+}
+
+/// How many E3s a game of this shape will buy, which is what the pot has to cover before any of it
+/// is prize money.
+///
+/// Not one per elimination: while the tribes are up, an elimination takes two rounds — everyone
+/// votes a tribe to council, then that tribe alone votes one of its own out. After the merge it is
+/// a single round, and the jury verdict is one more.
+///
+/// An upper bound, deliberately. A tribal round needs two tribes still standing, so a game that
+/// wipes one out merges early and costs less; nothing here makes it cost more.
 function expectedE3s(players: number): number {
-  return Math.max(1, (players - 2) * 2 + 1);
+  const { mergeAt, finalists } = shapeFor(players);
+  const tribal = Math.max(0, players - mergeAt); // two E3s each
+  const individual = Math.max(0, mergeAt - finalists); // one E3 each
+  return Math.max(1, tribal * 2 + individual + 1);
 }
 
 /// The lobby browser: what exists, and how to start one.
@@ -150,9 +174,12 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
   const [buyIn, setBuyIn] = useState(String(minimumPerPlayer));
 
   const buyInValue = Number(buyIn || "0");
-  const covers = buyInValue * players;
-  const needed = expectedE3s(players) * FEE_PER_E3;
-  const underfunded = covers < needed;
+  const collected = buyInValue * players;
+  const rounds = expectedE3s(players);
+  const needed = rounds * FEE_PER_E3;
+  const underfunded = collected < needed;
+  const prize = Math.max(0, collected - needed);
+  const sym = feeToken.symbol ?? "tokens";
 
   const create = async () => {
     try {
@@ -161,19 +188,16 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
 
       // Tribes of at least one, and a merge below the floor so tribal rounds actually happen —
       // starting at or under `mergeAt` dissolves the tribes before the first round.
-      const teamCount = players >= 6 ? 3 : 2;
       const config = {
         campaignDuration: 900n,
         ballotDuration: 2700n,
         tallyGrace: 600n,
-        teamCount,
         minMembersPerTeam: 1,
         minPlayers: players,
         lobbyTimeout: 86_400n,
-        mergeAt: Math.max(2, Math.min(players - 1, 6)),
-        finalists: 2,
         maxMissedCheckIns: 2,
         entryFee,
+        ...shapeFor(players),
       };
 
       await writeContractAsync({
@@ -239,16 +263,22 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
       </p>
 
       {/* The pot funds the game and the prize from the same pool, which is easy to get wrong in the
-          direction of an unplayable lobby. */}
-      <p className={underfunded ? "un-warn" : "un-fine"} style={{ maxWidth: "68ch" }}>
-        {underfunded
-          ? `A ${players}-player game needs about ${needed} ${feeToken.symbol ?? "tokens"} of encrypted votes. ${
-              buyInValue === 0
-                ? "A free lobby cannot open a round at all — the pot pays the fees."
-                : `${covers} would not cover it, so the game would stall part-way.`
-            } That is about ${minimumPerPlayer} each.`
-          : `Covers roughly ${needed} ${feeToken.symbol ?? "tokens"} of encrypted votes; the rest is the prize.`}
-      </p>
+          direction of an unplayable lobby — so show the arithmetic rather than a verdict. */}
+      <div className="un-stack" style={{ gap: 6, maxWidth: "68ch" }}>
+        <p className="un-fine">
+          {players} × {buyInValue || 0} {sym} = <strong>{collected} {sym}</strong> in the pot. A{" "}
+          {players}-player game runs about {rounds} secret {rounds === 1 ? "ballot" : "ballots"}, and
+          each one costs roughly {FEE_PER_E3} {sym} to have the committee encrypt, tally and decrypt
+          — {needed} {sym} in all, paid out of the pot as the game goes.
+        </p>
+        <p className={underfunded ? "un-warn" : "un-fine"}>
+          {underfunded
+            ? buyInValue === 0
+              ? `A free lobby has no pot, so it cannot open a single round.`
+              : `That leaves nothing for the ballots after ${Math.floor(collected / FEE_PER_E3)} of ${rounds}, so the game would stall part-way. About ${minimumPerPlayer} ${sym} each covers it.`
+            : `The winner takes what is left: about ${prize} ${sym}.`}
+        </p>
+      </div>
 
       <div className="un-row">
         <button type="button" className="un-btn" disabled={isPending || buyInValue === 0} onClick={() => void create()}>
