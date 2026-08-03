@@ -17,8 +17,18 @@ import type { NextApiRequest, NextApiResponse } from "next";
  */
 const PINATA_JWT = process.env.PINATA_JWT ?? "";
 
-/** A dedicated gateway (`https://<name>.mypinata.cloud`) if the account has one. */
-const PINATA_GATEWAY = (process.env.PINATA_GATEWAY ?? "").replace(/\/+$/, "");
+/**
+ * A dedicated gateway (`https://<name>.mypinata.cloud`) if the account has one.
+ *
+ * The scheme is optional because Pinata's dashboard shows the bare hostname, and that is what gets
+ * pasted. Without this, `https://` missing produces a relative URL, `fetch` throws, and the gateway
+ * is skipped in silence — the one failure that looks identical to having set nothing at all.
+ */
+const PINATA_GATEWAY = (() => {
+  const raw = (process.env.PINATA_GATEWAY ?? "").trim().replace(/\/+$/, "");
+  if (!raw) return "";
+  return /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
+})();
 
 /** Tried after Pinata, unauthenticated, for CIDs that are not ours. */
 const PUBLIC_GATEWAYS = ["https://dweb.link/ipfs", "https://ipfs.io/ipfs"];
