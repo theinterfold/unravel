@@ -263,12 +263,18 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
       }
 
       setStep("creating");
-      await writeContractAsync({
+      const created = await writeContractAsync({
         address: PUB_GAME_FACTORY_ADDRESS,
         abi: GameFactoryAbi,
         functionName: "create",
         args: [config, name.trim() || "Unravel", amount],
       });
+
+      // Waited on for the same reason as the approval, with a different symptom: `gameCount` and
+      // `latest` are read from the chain, so refetching them the instant the transaction is sent
+      // returns the state from before it. The result was "Lobby created" sitting above "nobody has
+      // started one yet" until the next poll came round.
+      await publicClient.waitForTransactionReceipt({ hash: created });
 
       // The new lobby is not selected automatically: the creator may be starting one for other
       // people, and silently moving them off the game they were watching is worse than a click.
@@ -278,6 +284,7 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
       });
       setOpen(false);
       onCreated();
+      void refetchBalance();
     } catch (e) {
       console.error("create lobby:", e);
       addAlert(describeGameError(e), { type: "error" });

@@ -51,6 +51,24 @@ export default function GamePage() {
   const notifications = useNotifications();
   const feeToken = useFeeToken();
 
+  // Computed before the guards below, and tolerant of a game that has not loaded, because the two
+  // `useAnnounce` calls that follow are hooks. Placed after an early return they would be skipped
+  // on the loading render and run on the next one, which is exactly the "rendered more hooks than
+  // during the previous render" React refuses to continue past.
+  const isAlive_ = !!address && !!game?.alive.some((p) => sameAddress(p, address));
+  const inBallot_ = !!round && now >= round.ballotOpensAt && now < round.ballotClosesAt;
+  const canVote_ =
+    inBallot_ && !!address && !!round?.voters.some((v) => sameAddress(v, address));
+  const owesCheckIn_ = isAlive_ && !checkIn.current && !checkIn.immature;
+
+  // Only the two moments a player loses the game by missing, and only when they apply to them.
+  useAnnounce(canVote_ && !sealed ? `ballot-${round?.id}` : undefined, () =>
+    notifications.notify("The ballot is open", "You have a vote to cast this round.")
+  );
+  useAnnounce(owesCheckIn_ && round ? `checkin-${round.id}` : undefined, () =>
+    notifications.notify("Check in", "Miss too many and you are out — one tap, no proof.")
+  );
+
   // With no default game configured, the first thing anybody sees is the browser rather than an
   // error about an address that was never meant to hold a contract.
   //
@@ -115,32 +133,25 @@ export default function GamePage() {
     );
   }
 
-  const isAlive = !!address && game.alive.some((p) => sameAddress(p, address));
+  const isAlive = isAlive_;
   const isJuror = !!address && game.jurors.some((p) => sameAddress(p, address));
 
   // Eligibility is the round's own voter list, which narrows in council rounds (one tribe) and jury
   // rounds (the dead) — not simply "everyone alive".
   const isVoter = !!round && !!address && round.voters.some((v) => sameAddress(v, address));
   const inCampaign = !!round && now < round.ballotOpensAt;
-  const inBallot = !!round && now >= round.ballotOpensAt && now < round.ballotClosesAt;
-  const canVote = isVoter && inBallot;
+  const inBallot = inBallot_;
+  const canVote = canVote_;
   const merged = !!round && (round.kind === RoundKind.Individual || round.kind === RoundKind.Jury);
 
   // What the player still owes, and therefore whether the clock is allowed to panic. Ballots are
   // secret, so "have I voted?" is only knowable from this browser — see useSealedLocally.
-  const owesCheckIn = isAlive && !checkIn.current && !checkIn.immature;
+  const owesCheckIn = owesCheckIn_;
   const owesBallot = canVote && !sealed;
   const owes = owesCheckIn || owesBallot;
 
   const secondsLeft = round && inBallot ? round.ballotClosesAt - now : 0n;
 
-  // Only the two moments a player loses the game by missing, and only when they apply to them.
-  useAnnounce(canVote && !sealed ? `ballot-${round?.id}` : undefined, () =>
-    notifications.notify("The ballot is open", "You have a vote to cast this round.")
-  );
-  useAnnounce(owesCheckIn && round ? `checkin-${round.id}` : undefined, () =>
-    notifications.notify("Check in", "Miss too many and you are out — one tap, no proof.")
-  );
   // Mirrors the contract: settling waits on the tally existing, not on a clock. The only clock
   // condition left is that the ballot has closed — nobody settles a round people can still vote in.
   const settleDue = !!round && !round.settled && now >= round.ballotClosesAt && !!pendingTally;

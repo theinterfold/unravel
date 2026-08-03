@@ -1,27 +1,35 @@
 import Link from "next/link";
+import { useReadContract } from "wagmi";
 import { useWallet } from "@/hooks/useWallet";
 import { plugins } from "@/plugins";
-import { PUB_CRISP_INFO_URL } from "@/constants";
-import { useGame } from "@/plugins/game/hooks/useGame";
-import { Stage } from "@/plugins/game/utils/gameTypes";
-import { useFeeToken } from "@/plugins/game/hooks/useFeeToken";
+import { PUB_CRISP_INFO_URL, PUB_GAME_FACTORY_ADDRESS } from "@/constants";
+import { GameFactoryAbi } from "@/plugins/game/artifacts/GameFactory";
 
 /// The front door.
 ///
 /// Same visual language as the game, one notch louder — this is the only surface allowed to sell.
-/// The numbers are read from the live game rather than written into the copy: a landing page that
-/// claims twelve players while four are seated is the first lie a new player catches you in.
+/// It states one number, the lobby count, and reads it from the factory: a landing page that claims
+/// twelve players while four are seated is the first lie a new player catches you in. Per-game
+/// figures belong to the lobby browser, which is the only place they mean anything.
 export default function Home() {
   const { isConnected, connect, isPending } = useWallet();
-  const { game } = useGame(30_000);
-  const feeToken = useFeeToken();
 
   const gameHref = `/plugins/${plugins[0]?.id ?? "game"}/#/`;
 
-  const seats = game?.config.minPlayers;
-  const taken = game?.alive.length;
-  const left = seats !== undefined && taken !== undefined ? Math.max(0, seats - taken) : undefined;
-  const inLobby = game?.stage === Stage.Lobby;
+  // How many lobbies exist, which is the only number this page can honestly state.
+  //
+  // It used to read one game — seats taken, tribe count, the pot — from whichever address the
+  // deployment named. With lobbies there is no such game: every figure was either a stale
+  // deployment's or an em-dash, and the ones that did render described one lobby out of many as
+  // though it were the whole thing.
+  const { data: lobbies } = useReadContract({
+    address: PUB_GAME_FACTORY_ADDRESS,
+    abi: GameFactoryAbi,
+    functionName: "gameCount",
+    query: { enabled: !!PUB_GAME_FACTORY_ADDRESS, refetchInterval: 30_000 },
+  });
+
+  const count = lobbies === undefined ? undefined : Number(lobbies);
 
   return (
     <main className="un">
@@ -29,15 +37,11 @@ export default function Home() {
         <section className="un-hero">
           <div>
             <div className="un-row" style={{ gap: 10, marginBottom: 24 }}>
-              {game && (
+              {!!count && (
                 <span className="un-live">
                   <span className="un-live-dot" aria-hidden="true" />
-                  {inLobby ? "A GAME IS FORMING" : "A GAME IS LIVE"}
+                  {count === 1 ? "ONE GAME IN PLAY" : `${count} GAMES IN PLAY`}
                 </span>
-              )}
-              {taken !== undefined && !inLobby && <span className="un-pill">{taken} STILL BREATHING</span>}
-              {game && game.jurors.length > 0 && (
-                <span className="un-pill">{game.jurors.length} ON THE JURY, SEETHING</span>
               )}
             </div>
 
@@ -56,7 +60,7 @@ export default function Home() {
                 </button>
               ) : (
                 <Link href={gameHref} className="un-btn" style={{ textDecoration: "none" }}>
-                  {inLobby ? "Take a seat" : "Enter the game"}
+                  {count ? "Find a lobby" : "Start a lobby"}
                 </Link>
               )}
               <Link href={gameHref} className="un-btn un-btn-ghost" style={{ textDecoration: "none" }}>
@@ -65,31 +69,14 @@ export default function Home() {
               <Link href="/rules" className="un-btn un-btn-ghost" style={{ textDecoration: "none" }}>
                 Read the rules
               </Link>
-
-              {/* Real seats, not a scarcity prop. Absent entirely when there is no game to count. */}
-              {inLobby && seats !== undefined && taken !== undefined && (
-                <span className="un-seats">
-                  <span style={{ display: "flex", gap: 4 }} aria-hidden="true">
-                    {Array.from({ length: seats }, (_, i) => (
-                      <span
-                        key={i}
-                        className={`un-seat ${i < taken ? "un-seat-taken" : ""} ${i === taken ? "un-seat-next" : ""}`}
-                      />
-                    ))}
-                  </span>
-                  <span className="un-label" style={{ letterSpacing: ".12em" }}>
-                    {left} {left === 1 ? "seat" : "seats"} left
-                  </span>
-                </span>
-              )}
             </div>
 
             <div className="un-grid-2 un-grid-2-wide" style={{ gap: 40 }}>
               <p className="un-prose" style={{ fontSize: 18, maxWidth: "none" }}>
-                {seats ?? "A handful of"} players, {game?.config.teamCount ?? "four"} tribes, one pot. You campaign in the
-                open — permanent, attributable, deeply screenshot-able — and then vote by a secret ballot nobody can
-                open. Not the others. Not us. Get voted out and you don&apos;t go home: you join the jury, and the jury
-                picks who walks away rich. So do think about whose feelings you are stamping on.
+                A handful of players, a few tribes, one pot. You campaign in the open — permanent,
+                attributable, deeply screenshot-able — and then vote by a secret ballot nobody can open. Not the others.
+                Not us. Get voted out and you don&apos;t go home: you join the jury, and the jury picks who walks away
+                rich. So do think about whose feelings you are stamping on.
               </p>
               <div className="un-stack" style={{ gap: 9, alignContent: "start" }}>
                 <Rule tone="var(--un-pistachio)" text="SAY ANYTHING, PROVE NOTHING" />
@@ -120,19 +107,10 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="un-stats">
-          <Stat figure={seats?.toString() ?? "—"} note="players, each convinced they're the smartest one here" accent={true} />
-          <Stat
-            figure={game?.config.teamCount.toString() ?? "—"}
-            note="tribes, most of which will betray the rest by Tuesday"
-          />
-          {/* Omitted rather than shown raw: an unformatted pot is base units, which reads as noise. */}
-          <Stat
-            figure={feeToken.format(game?.pot) ?? "—"}
-            note={`${feeToken.symbol ? `${feeToken.symbol} in the pot` : "in the pot"}, going to exactly one of them`}
-          />
-          <Stat figure="0" note="people who can see how you voted. Including us. Forever." />
-        </section>
+        {/* The four-figure strip that stood here read one game's seats, tribes and pot. Every lobby
+            has its own, so there was no game for it to describe — only whichever one the browser
+            happened to be pointed at, presented as though it were the whole thing. The lobby
+            browser shows the real numbers, per lobby, and it is one click away. */}
       </div>
 
       <div className="un-marquee">
@@ -172,12 +150,5 @@ const Rule = ({ tone, text }: { tone: string; text: string }) => (
   <div className="un-chip">
     <span className="un-chip-dot" style={{ background: tone }} aria-hidden="true" />
     {text}
-  </div>
-);
-
-const Stat = ({ figure, note, accent }: { figure: string; note: string; accent?: boolean }) => (
-  <div className={`un-stat ${accent ? "un-stat-accent" : ""}`}>
-    <div className="un-stat-figure">{figure}</div>
-    <div className="un-stat-note">{note}</div>
   </div>
 );
