@@ -29,6 +29,7 @@ contract SurvivalGameTest is Test {
     uint8 internal constant PER_TEAM = 3;
     uint8 internal constant MERGE_AT = 4;
     uint8 internal constant FINALISTS = 2;
+    uint64 internal constant LOBBY_TIMEOUT = 1 days;
 
     address[] internal players;
 
@@ -93,6 +94,7 @@ contract SurvivalGameTest is Test {
                 // Existing tests all seat a full lobby. Early-start behaviour is covered separately
                 // via `_paramsWithMin`.
                 minPlayers: teams * perTeam,
+                lobbyTimeout: LOBBY_TIMEOUT,
                 mergeAt: mergeAt,
                 finalists: finalists,
                 maxMissedCheckIns: maxMissed,

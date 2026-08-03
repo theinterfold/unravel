@@ -6,6 +6,8 @@ export enum Stage {
   Playing = 1,
   Jury = 2,
   Ended = 3,
+  /// The lobby never filled and was abandoned. Entry fees are refundable.
+  Cancelled = 4,
 }
 
 /// The phase within a round, derived from the round's timestamps rather than stored on-chain.
@@ -41,6 +43,8 @@ export type GameConfig = {
   minMembersPerTeam: number;
   /// Players needed before anyone may start. Below the full lobby by default.
   minPlayers: number;
+  /// How long a lobby may sit unfilled before anyone can cancel it and release the entry fees.
+  lobbyTimeout: bigint;
   mergeAt: number;
   finalists: number;
   maxMissedCheckIns: number;

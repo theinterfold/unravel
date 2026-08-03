@@ -82,6 +82,19 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
     /// it. Consulted only when a round has no provider of its own — see `censusProviderOf`.
     address public censusProvider;
 
+    /// @notice The fields a proposal's creator supplies alongside the metadata.
+    /// @dev Decoded as a struct rather than six locals because `createProposal` is at the stack
+    ///      limit: a memory struct costs one slot, six `uint256`s cost six. The encoding is
+    ///      identical either way, so callers are unaffected.
+    struct ProposalData {
+        uint256 allowFailureMap;
+        uint256 numOptions;
+        uint256 creditMode;
+        uint256 credits;
+        uint256 electorateSize;
+        uint256 censusMode;
+    }
+
     /// @notice The census provider for a given E3: whoever created the proposal that requested it.
     /// @dev A single global provider makes one plugin serve exactly one app. The coordination server
     ///      asks the E3's requester — this plugin — who may vote, so with two apps sharing a plugin
@@ -203,24 +216,23 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
 
         {
             /// @notice Decode the data
-            (
-                uint256 _allowFailureMap,
-                uint256 numOptions,
-                uint256 creditMode,
-                uint256 credits,
-                uint256 electorateSize
-            ) = abi.decode(_data, (uint256, uint256, uint256, uint256, uint256));
+            ProposalData memory d = abi.decode(_data, (ProposalData));
 
-            if (numOptions < 2) {
-                revert InvalidOptionCount(numOptions);
+            if (d.numOptions < 2) {
+                revert InvalidOptionCount(d.numOptions);
             }
 
+            // Declared by the creator rather than assumed here. This plugin records the creator as
+            // the round's census provider, but only the creator knows whether it actually implements
+            // `getCensus` — an app doing ordinary token voting must be able to say so, and a
+            // coordinator that guessed would answer that question wrongly and silently.
             bytes memory customParams = abi.encode(
                 address(votingToken),
                 votingSettings.minProposerVotingPower,
-                numOptions,
-                ICRISP.CreditMode(creditMode),
-                credits
+                d.numOptions,
+                ICRISP.CreditMode(d.creditMode),
+                d.credits,
+                d.censusMode
             );
 
             IInterfold.E3RequestParams memory requestParams = IInterfold.E3RequestParams({
@@ -236,20 +248,20 @@ contract CrispVoting is PluginUUPSUpgradeable, ProposalUpgradeable, ICrispVoting
             uint256 e3Id = _openE3(requestParams);
 
             /// @notice Store the data
-            proposal.tally.counts = new uint256[](numOptions);
+            proposal.tally.counts = new uint256[](d.numOptions);
             proposal.parameters = ProposalParameters({
-                numOptions: numOptions,
+                numOptions: d.numOptions,
                 startDate: _startDate,
                 endDate: _endDate,
                 // snapshot the previous block so voting power is read from a finalized block
                 snapshotBlock: _tokenClock() - 1,
                 minVotingPower: votingSettings.minProposerVotingPower,
                 minParticipation: votingSettings.minParticipation,
-                creditMode: ICRISP.CreditMode(creditMode),
-                credits: credits,
-                electorateSize: electorateSize
+                creditMode: ICRISP.CreditMode(d.creditMode),
+                credits: d.credits,
+                electorateSize: d.electorateSize
             });
-            proposal.allowFailureMap = _allowFailureMap;
+            proposal.allowFailureMap = d.allowFailureMap;
             proposal.targetConfig = getTargetConfig();
             proposal.e3Id = e3Id;
             // The creator answers for this round's electorate. Recorded here rather than configured

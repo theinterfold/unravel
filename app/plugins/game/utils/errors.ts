@@ -91,6 +91,12 @@ function describe(name: string, args: readonly unknown[]): string | undefined {
         : `The pot cannot cover the round's fee — ${n(0)} needed, ${n(1)} available.`;
     case "NothingToWithdraw":
       return "There is nothing to withdraw.";
+    case "NothingToRefund":
+      return "This address has no refund to claim.";
+    case "LobbyStillOpen":
+      return "The lobby has not reached its deadline yet, so it cannot be cancelled.";
+    case "LobbyTimeoutDisabled":
+      return "This lobby has no timeout and cannot be cancelled.";
 
     // ─── Configuration, which a player can do nothing about ──────────────────────────────────
     case "InvalidConfig":
@@ -113,6 +119,8 @@ function stageName(stage: number): string {
       return "at the jury stage";
     case Stage.Ended:
       return "over";
+    case Stage.Cancelled:
+      return "a cancelled lobby";
     default:
       return "in another stage";
   }

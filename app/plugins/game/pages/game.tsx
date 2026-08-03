@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useAccount, useWriteContract } from "wagmi";
+import { useAccount, useReadContract, useWriteContract } from "wagmi";
 import { PUB_GAME_ADDRESS, PUB_CHAIN_NAME } from "@/constants";
 
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
@@ -158,6 +158,8 @@ export default function GamePage() {
             </div>
           </section>
         )}
+
+        {game.stage === Stage.Cancelled && <CancelledLobby self={address} feeToken={feeToken} />}
 
         {game.stage === Stage.Lobby && (
           <section className="un-panel un-stack">
@@ -325,6 +327,65 @@ export default function GamePage() {
   );
 }
 
+/// A lobby that never filled. The entry fees are sitting in the contract waiting to be claimed, so
+/// the only thing this screen does is say so and hand them back.
+const CancelledLobby = ({
+  self,
+  feeToken,
+}: {
+  self?: Address;
+  feeToken: { format: (v: bigint | undefined) => string | undefined; symbol?: string };
+}) => {
+  const { addAlert } = useAlerts();
+  const { writeContractAsync, isPending } = useWriteContract();
+
+  const { data: refund, refetch } = useReadContract({
+    address: PUB_GAME_ADDRESS,
+    abi: SurvivalGameAbi,
+    functionName: "refundOf",
+    args: self ? [self] : undefined,
+    query: { enabled: !!self },
+  });
+
+  const owed = (refund as bigint | undefined) ?? 0n;
+
+  const claim = async () => {
+    try {
+      await writeContractAsync({
+        address: PUB_GAME_ADDRESS,
+        abi: SurvivalGameAbi,
+        functionName: "claimRefund",
+        args: [],
+      });
+      void refetch();
+      addAlert("Refunded.", { type: "success", timeout: 3000 });
+    } catch (e) {
+      console.error("claimRefund:", e);
+      addAlert(describeGameError(e), { type: "error" });
+    }
+  };
+
+  return (
+    <section className="un-panel un-stack">
+      <div className="un-label-dim">Lobby cancelled</div>
+      <h2 className="un-verdict">Nobody came.</h2>
+      <p className="un-prose">
+        The lobby sat unfilled past its deadline, so it was closed and the entry fees released.
+        Anyone could do that — a lobby&apos;s money is not left waiting on whoever created it.
+      </p>
+      {owed > 0n ? (
+        <div className="un-row">
+          <button type="button" className="un-btn" disabled={isPending} onClick={() => void claim()}>
+            {isPending ? "Claiming…" : `Claim ${feeToken.format(owed) ?? owed.toString()} ${feeToken.symbol ?? ""}`}
+          </button>
+        </div>
+      ) : (
+        <p className="un-fine">{self ? "Nothing owed to this address." : "Connect a wallet to check for a refund."}</p>
+      )}
+    </section>
+  );
+};
+
 /// The chrome. Ink, not cream — v3 has no light surfaces at all.
 const Masthead = ({
   game,
@@ -370,6 +431,8 @@ function stageLabel(stage: Stage): string {
       return "JURY";
     case Stage.Ended:
       return "SETTLED";
+    case Stage.Cancelled:
+      return "CANCELLED";
   }
 }
 

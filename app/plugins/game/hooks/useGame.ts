@@ -108,10 +108,11 @@ function toConfig(raw: readonly unknown[]): GameConfig {
     teamCount: Number(raw[3]),
     minMembersPerTeam: Number(raw[4]),
     minPlayers: Number(raw[5]),
-    mergeAt: Number(raw[6]),
-    finalists: Number(raw[7]),
-    maxMissedCheckIns: Number(raw[8]),
-    entryFee: raw[9] as bigint,
+    lobbyTimeout: raw[6] as bigint,
+    mergeAt: Number(raw[7]),
+    finalists: Number(raw[8]),
+    maxMissedCheckIns: Number(raw[9]),
+    entryFee: raw[10] as bigint,
   };
 }
 

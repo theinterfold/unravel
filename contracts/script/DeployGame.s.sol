@@ -83,6 +83,9 @@ contract DeployGame is Script {
                 vm.envOr("MIN_MEMBERS_PER_TEAM", vm.envOr("MEMBERS_PER_TEAM", uint256(2)))
             ),
             minPlayers: uint8(vm.envOr("MIN_PLAYERS", uint256(4))),
+            // How long a lobby may sit unfilled before anyone can cancel it and release the entry
+            // fees. Only meaningful when joining costs something; a free lobby has nothing to strand.
+            lobbyTimeout: uint64(vm.envOr("LOBBY_TIMEOUT", uint256(24 hours))),
             mergeAt: uint8(vm.envOr("MERGE_AT", uint256(6))),
             finalists: uint8(vm.envOr("FINALISTS", uint256(2))),
             maxMissedCheckIns: uint8(vm.envOr("MAX_MISSED_CHECKINS", uint256(2))),

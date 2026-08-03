@@ -50,12 +50,18 @@ contract SurvivalGame is Ownable {
 
     /// @notice `ICRISP.CreditMode.CONSTANT`, passed through to the plugin as a uint.
     uint256 internal constant CREDIT_MODE_CONSTANT = 0;
+    /// @notice `CRISPProgram.CensusMode.BY_REQUESTER`. The game answers `getCensus` for its own
+    ///         rounds, so the coordinator must ask rather than derive the electorate from token
+    ///         balances — which would enfranchise every LIFE holder in a council or jury round.
+    uint256 internal constant CENSUS_MODE_BY_REQUESTER = 1;
 
     enum Stage {
         Lobby,
         Playing,
         Jury,
-        Ended
+        Ended,
+        /// @notice The lobby never filled and was abandoned. Entry fees are refundable.
+        Cancelled
     }
 
     /// @notice What a round's ballot decides.
@@ -81,8 +87,11 @@ contract SurvivalGame is Ownable {
         /// MAX_BALLOT_OPTIONS, which is the circuit's limit on a council ballot, not a game rule.
         uint8 minMembersPerTeam;
         /// @notice Players needed before the game may start. Must be in (finalists, teamCount *
-        /// membersPerTeam]. Set it equal to the full lobby to require every seat.
+        /// MAX_BALLOT_OPTIONS]. Set it equal to the full lobby to require every seat.
         uint8 minPlayers;
+        /// @notice How long the lobby may sit unfilled before anyone can cancel it and release the
+        /// entry fees. Zero means never — appropriate only when nobody is paying to join.
+        uint64 lobbyTimeout;
         /// @notice Survivor count at which teams dissolve. Must be <= MAX_BALLOT_OPTIONS.
         uint8 mergeAt;
         /// @notice Survivors left when eliminations stop and the jury votes. Must be >= 2.
@@ -134,6 +143,18 @@ contract SurvivalGame is Ownable {
     address[] public graveyard;
     address public winner;
 
+    /// @notice When the lobby opened, which is what `lobbyTimeout` counts from.
+    /// @dev Named for the lobby rather than the game because `Round` has its own `openedAt`, and two
+    ///      unrelated things with the same name in one contract is how the wrong one gets read.
+    uint64 public immutable lobbyOpenedAt;
+
+    /// @notice Entry fee owed back to a player whose lobby was cancelled.
+    /// @dev Pull rather than push. Refunding in a loop inside `cancelLobby` would put the whole
+    ///      lobby's money behind one transaction that any single reverting recipient could block —
+    ///      and the fee token is chosen by whoever deployed the game, so a token that reverts on
+    ///      transfer to some address is not a hypothetical.
+    mapping(address => uint256) public refundOf;
+
     /// @notice Team id (1-based; 0 means "no team") per player.
     mapping(address => uint8) public teamOf;
     /// @notice Surviving members of each team, 1-indexed by team id.
@@ -172,6 +193,8 @@ contract SurvivalGame is Ownable {
     event JuryPhaseReached(address[] finalists);
     event WinnerDeclared(address indexed player, uint256 prize);
     event ImmunitySourceUpdated(address indexed source);
+    event LobbyCancelled(uint256 players, uint256 refundable);
+    event RefundClaimed(address indexed player, uint256 amount);
 
     // ─── Errors ──────────────────────────────────────────────────────────────────────────────
 
@@ -197,6 +220,9 @@ contract SurvivalGame is Ownable {
     error TallyLengthMismatch(uint256 expected, uint256 actual);
     error NoRounds();
     error NothingToWithdraw();
+    error LobbyStillOpen(uint64 until);
+    error LobbyTimeoutDisabled();
+    error NothingToRefund();
 
     // ─── Construction ────────────────────────────────────────────────────────────────────────
 
@@ -240,6 +266,7 @@ contract SurvivalGame is Ownable {
         juryToken = params.juryToken;
         config = cfg;
         stage = Stage.Lobby;
+        lobbyOpenedAt = uint64(block.timestamp);
     }
 
     // ─── Lobby ───────────────────────────────────────────────────────────────────────────────
@@ -401,7 +428,8 @@ contract SurvivalGame is Ownable {
             options,
             CREDIT_MODE_CONSTANT,
             CREDITS_PER_VOTER,
-            rounds[roundId].voters.length
+            rounds[roundId].voters.length,
+            CENSUS_MODE_BY_REQUESTER
         );
 
         // The plugin pulls its Interfold fee from the caller, so the pot has to be approved to it.
@@ -631,6 +659,54 @@ contract SurvivalGame is Ownable {
         emit RoundAborted(roundId, round.e3Id);
     }
 
+    /// @notice Abandons a lobby that never filled, releasing entry fees.
+    ///
+    /// @dev Permissionless, like starting: whether the lobby filled by the deadline is an objective
+    ///      fact, and leaving it to the creator would mean a lobby's money is only as recoverable as
+    ///      its creator's attention. That is the failure the open-join model creates — nobody can
+    ///      take your seats, but nobody is obliged to start either.
+    ///
+    ///      Only ever callable while the lobby is short of its floor: once `minPlayers` have joined,
+    ///      anyone can start the game instead, so there is nothing to rescue.
+    function cancelLobby() external {
+        if (stage != Stage.Lobby) revert WrongStage(Stage.Lobby, stage);
+
+        uint64 timeout = config.lobbyTimeout;
+        if (timeout == 0) revert LobbyTimeoutDisabled();
+
+        uint64 due = lobbyOpenedAt + timeout;
+        if (block.timestamp < due) revert LobbyStillOpen(due);
+        if (alive.length >= config.minPlayers) revert LobbyIncomplete(alive.length, config.minPlayers);
+
+        stage = Stage.Cancelled;
+
+        uint256 fee = config.entryFee;
+        uint256 refundable;
+        if (fee != 0) {
+            uint256 count = alive.length;
+            for (uint256 i = 0; i < count; ++i) {
+                refundOf[alive[i]] = fee;
+            }
+            refundable = fee * count;
+            // The refunds are no longer prize money, so they leave the pot. Whatever was funded on
+            // top stays, and `sweep` returns it.
+            pot -= refundable;
+        }
+
+        emit LobbyCancelled(alive.length, refundable);
+    }
+
+    /// @notice Claims an entry fee back from a cancelled lobby.
+    function claimRefund() external {
+        uint256 amount = refundOf[msg.sender];
+        if (amount == 0) revert NothingToRefund();
+
+        refundOf[msg.sender] = 0;
+        feeToken.safeTransfer(msg.sender, amount);
+
+        emit RefundClaimed(msg.sender, amount);
+    }
+
     // ─── Treasury ────────────────────────────────────────────────────────────────────────────
 
     function fund(uint256 amount) external {
@@ -638,8 +714,10 @@ contract SurvivalGame is Ownable {
         pot += amount;
     }
 
+    /// @dev Also allowed once a lobby is cancelled, so a creator's own funding is recoverable. The
+    ///      pot has already had the refunds deducted by then, so this cannot take players' money.
     function sweep(address to) external onlyOwner {
-        if (stage != Stage.Ended) revert WrongStage(Stage.Ended, stage);
+        if (stage != Stage.Ended && stage != Stage.Cancelled) revert WrongStage(Stage.Ended, stage);
         uint256 amount = pot;
         if (amount == 0) revert NothingToWithdraw();
         pot = 0;
