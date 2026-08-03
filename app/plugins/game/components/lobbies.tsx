@@ -2,7 +2,12 @@ import { useState, type FC } from "react";
 import type { Address } from "viem";
 import { useAccount, useReadContract, useReadContracts, useWriteContract } from "wagmi";
 import { erc20Abi } from "viem";
-import { PUB_ENABLE_FAUCET, PUB_GAME_FACTORY_ADDRESS, PUB_INTERFOLD_FEE_TOKEN_ADDRESS } from "@/constants";
+import {
+  PUB_CRISP_VOTING_PLUGIN_ADDRESS,
+  PUB_ENABLE_FAUCET,
+  PUB_GAME_FACTORY_ADDRESS,
+  PUB_INTERFOLD_FEE_TOKEN_ADDRESS,
+} from "@/constants";
 import { useFaucet } from "@/hooks/useFaucet";
 import { useAlerts } from "@/context/Alerts";
 import { GameFactoryAbi } from "../artifacts/GameFactory";
@@ -22,6 +27,31 @@ const PAGE = 12;
 const FEE_PER_E3 = 14;
 
 const FINALISTS = 2;
+
+/// The shortest campaign worth offering, in minutes.
+///
+/// Not a contract rule — the constructor only rejects zero. It is the committee: the ballot cannot
+/// open until the DKG publishes its key, and a campaign shorter than that produces a round whose
+/// ballot is already open by the time anyone can vote in it. Five minutes clears it comfortably on
+/// Sepolia; a busier chain would want more.
+const MIN_CAMPAIGN_MINUTES = 5;
+
+/// Fallback for the plugin's own floor on ballot length, used only until the read lands. The real
+/// value is read from the deployed plugin, because it is a setting rather than a constant and a
+/// stale copy here would fail at `startGame` rather than in this form.
+const FALLBACK_MIN_BALLOT_MINUTES = 10;
+
+/// `minDuration()` alone. The plugin's full ABI is not among the artifacts this app syncs, and one
+/// getter does not justify adding it.
+const MIN_DURATION_ABI = [
+  {
+    type: "function",
+    name: "minDuration",
+    inputs: [],
+    outputs: [{ type: "uint64" }],
+    stateMutability: "view",
+  },
+] as const;
 
 /// The knobs the form does not ask about, derived from the one it does.
 ///
@@ -144,6 +174,10 @@ export const Lobbies: FC = () => {
                   {/* The pot, not the entry fee: what a player wants to know is what is on the
                       table, and joining is free. A lobby that still charges one says so. */}
                   {pot !== undefined && ` · ${feeToken.format(pot) ?? pot} ${feeToken.symbol ?? ""} pot`}
+                  {/* Now that pacing varies per lobby it decides whether you can play at all: a
+                      15+45 game is an evening, a 4-hour ballot is something you check in on. */}
+                  {config !== undefined &&
+                    ` · ${Number(config[0]) / 60}m talk + ${Number(config[1]) / 60}m vote`}
                   {entryFee !== undefined && entryFee !== 0n &&
                     ` · ${feeToken.format(entryFee) ?? entryFee} to join`}
                 </span>
@@ -171,8 +205,27 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
 
   const [name, setName] = useState("");
   const [players, setPlayers] = useState(6);
+  const [campaign, setCampaign] = useState(15);
+  const [ballot, setBallot] = useState(45);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<"idle" | "approving" | "creating">("idle");
+
+  // The plugin refuses a proposal whose window is shorter than its own `minDuration`, and it does
+  // so at `startGame` — after the lobby has been created, funded and filled. Read here so the floor
+  // is enforced while it is still a number in a form.
+  const { data: minDuration } = useReadContract({
+    address: PUB_CRISP_VOTING_PLUGIN_ADDRESS,
+    abi: MIN_DURATION_ABI,
+    functionName: "minDuration",
+    query: { enabled: !!PUB_CRISP_VOTING_PLUGIN_ADDRESS, staleTime: Infinity },
+  });
+
+  const minBallot = minDuration === undefined
+    ? FALLBACK_MIN_BALLOT_MINUTES
+    : Math.ceil(Number(minDuration) / 60);
+
+  const campaignTooShort = campaign < MIN_CAMPAIGN_MINUTES;
+  const ballotTooShort = ballot < minBallot;
 
   const rounds = expectedE3s(players);
   const needed = rounds * FEE_PER_E3;
@@ -222,8 +275,11 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
       // nothing but gas — no balance to acquire, no approval, no judgement about what a game is
       // worth before they have played one.
       const config = {
-        campaignDuration: 900n,
-        ballotDuration: 2700n,
+        campaignDuration: BigInt(campaign * 60),
+        ballotDuration: BigInt(ballot * 60),
+        // Not asked about: `tallyGrace` is the deadline after which a round the committee never
+        // settled may be abandoned, which is a recovery knob rather than a pacing one. Ten minutes
+        // past the ballot is generous for a committee that is working and short for one that is not.
         tallyGrace: 600n,
         minMembersPerTeam: 1,
         minPlayers: players,
@@ -369,6 +425,40 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
         </div>
       )}
 
+      <div className="un-row" style={{ gap: 12 }}>
+        <label className="un-field">
+          <span className="un-field-label">Campaign (minutes)</span>
+          <input
+            className="un-input"
+            type="number"
+            min={MIN_CAMPAIGN_MINUTES}
+            value={campaign}
+            onChange={(e) => setCampaign(Math.max(1, Number(e.target.value) || 1))}
+          />
+        </label>
+
+        <label className="un-field">
+          <span className="un-field-label">Ballot (minutes)</span>
+          <input
+            className="un-input"
+            type="number"
+            min={minBallot}
+            value={ballot}
+            onChange={(e) => setBallot(Math.max(1, Number(e.target.value) || 1))}
+          />
+        </label>
+      </div>
+
+      {/* Both phases repeat every round, so this is the single biggest lever on what the game feels
+          like to play — and the campaign is the half where the game actually happens. */}
+      <p className={campaignTooShort || ballotTooShort ? "un-warn" : "un-fine"} style={{ maxWidth: "68ch" }}>
+        {campaignTooShort
+          ? `The campaign needs at least ${MIN_CAMPAIGN_MINUTES} minutes: the ballot cannot open until the committee has published its key, and a shorter window opens a ballot nobody can vote in yet.`
+          : ballotTooShort
+            ? `This deployment will not accept a ballot shorter than ${minBallot} minutes. A lobby created with less fails when someone tries to start it, not now.`
+            : `Every round runs a ${campaign}-minute campaign and then a ${ballot}-minute ballot, so a round takes about ${campaign + ballot} minutes and the whole game around ${Math.round(((campaign + ballot) * rounds) / 60)} hours. The campaign is where the game is played — the ballot is mostly waiting.`}
+      </p>
+
       <p className="un-fine" style={{ maxWidth: "68ch" }}>
         Free to join. You stand the pot; everyone else needs nothing but gas. Anyone can start it
         once {players} have joined — and if it never fills, anyone can cancel after a day and you
@@ -398,7 +488,7 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
           className="un-btn"
           // Blocked on the balance too: the alternative is two wallet prompts ending in a revert
           // from the token, which costs gas on the approval that did go through.
-          disabled={isPending || underfunded || shortBy > 0}
+          disabled={isPending || underfunded || shortBy > 0 || campaignTooShort || ballotTooShort}
           onClick={() => void create()}
         >
           {step === "approving"
