@@ -59,34 +59,44 @@ async function fetchRawIpfs(ipfsUri: string): Promise<Response> {
     if (!ipfsUri) throw new Error("Invalid IPFS URI");
   }
 
-  const uriPrefixes = PUB_IPFS_ENDPOINTS.split(",").filter((uri) => !!uri.trim());
-  if (!uriPrefixes.length) throw new Error("No available IPFS endpoints to fetch from");
-
   const cid = resolvePath(ipfsUri);
 
-  for (const uriPrefix of uriPrefixes) {
-    const controller = new AbortController();
-    const abortId = setTimeout(() => controller.abort(), IPFS_FETCH_TIMEOUT);
-    try {
-      const response = await fetch(`${uriPrefix}/${cid}`, {
-        method: "GET",
-        signal: controller.signal,
-      });
-      if (!response.ok) continue;
+  // The server-side proxy first. It is authenticated against the account that pinned the content,
+  // so for anything this app posted it is the only source guaranteed to have it — the public
+  // gateways have to find it on the DHT, which for a freshly pinned block often never resolves.
+  const proxied = await tryOne(`/api/ipfs/cat?cid=${encodeURIComponent(cid)}`);
+  if (proxied) return proxied;
 
-      return response; // .json(), .text(), .blob(), etc.
-    } catch {
-      // The two ways a gateway actually fails — the abort above firing, and a network or CORS
-      // rejection — both throw rather than returning a non-ok response. Uncaught, the first dead
-      // gateway ended the loop and the remaining ones were never tried, which made a list of
-      // fallbacks behave exactly like a single endpoint.
-      continue;
-    } finally {
-      clearTimeout(abortId);
-    }
+  // Then the configured gateways directly, which still matter: they cover content this app did not
+  // pin, and they keep working if the proxy is unavailable.
+  const uriPrefixes = PUB_IPFS_ENDPOINTS.split(",").filter((uri) => !!uri.trim());
+
+  for (const uriPrefix of uriPrefixes) {
+    const hit = await tryOne(`${uriPrefix}/${cid}`);
+    if (hit) return hit; // .json(), .text(), .blob(), etc.
   }
 
-  throw new Error(`Could not fetch ${cid} from any of ${uriPrefixes.length} IPFS gateways`);
+  throw new Error(
+    `Could not fetch ${cid} from the pinning proxy or any of ${uriPrefixes.length} IPFS gateways`
+  );
+}
+
+/// One source, with a deadline. Returns undefined rather than throwing, so a caller can move on.
+///
+/// The two ways a gateway actually fails — the abort firing, and a network or CORS rejection — both
+/// throw rather than returning a non-ok response. Uncaught, the first dead gateway ended the loop
+/// and the rest were never tried, which made a list of fallbacks behave like a single endpoint.
+async function tryOne(url: string): Promise<Response | undefined> {
+  const controller = new AbortController();
+  const abortId = setTimeout(() => controller.abort(), IPFS_FETCH_TIMEOUT);
+  try {
+    const response = await fetch(url, { method: "GET", signal: controller.signal });
+    return response.ok ? response : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(abortId);
+  }
 }
 
 function resolvePath(uri: string) {

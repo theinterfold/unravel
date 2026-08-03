@@ -423,6 +423,9 @@ EOF
 # deploy has no way to know, and silently dropping it on every redeploy turns campaign posts back
 # into the on-chain fallback without anyone noticing.
 PINATA_JWT="$(sed -n 's/^PINATA_JWT=//p' "$ROOT/app/.env" 2>/dev/null | head -1)"
+# Same reasoning: the dedicated gateway is account configuration, not deployment output. It is what
+# makes reading a post back reliable — see pages/api/ipfs/cat.ts.
+PINATA_GATEWAY="$(sed -n 's/^PINATA_GATEWAY=//p' "$ROOT/app/.env" 2>/dev/null | head -1)"
 step "writing app/.env"
 # Gitignored: the backup inherits every credential the live file has, and a tracked copy of
 # app/.env is a leak with an extra step.
@@ -455,6 +458,7 @@ NEXT_PUBLIC_WEB3_ENDPOINT=$RPC
 # "unreachable", which looks like the pin failed rather than like nothing was ever asked for it.
 NEXT_PUBLIC_IPFS_ENDPOINTS=https://gateway.pinata.cloud/ipfs,https://dweb.link/ipfs,https://ipfs.io/ipfs
 ${PINATA_JWT:+PINATA_JWT=$PINATA_JWT
+}${PINATA_GATEWAY:+PINATA_GATEWAY=$PINATA_GATEWAY
 }NEXT_PUBLIC_SECONDS_PER_BLOCK=12
 EOF
 echo "  app/.env written (previous copy at app/.env.bak)"
