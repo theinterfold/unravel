@@ -290,8 +290,8 @@ echo "  NAMES   $NAMES"
 # ─── 4. fee tokens ──────────────────────────────────────────────────────────────────────────────
 #
 # No pot is funded here, because no game is deployed here: lobbies are created from the app and
-# funded by their players' buy-ins. This only puts fee tokens in the deployer's hands so they can
-# join one.
+# funded by whoever creates them. This only puts fee tokens in the deployer's hands so they can
+# stand one.
 
 step "claiming fee tokens from the faucet"
 if cast send "$FAUCET" "faucet()" --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null 2>&1; then
@@ -318,12 +318,18 @@ if [ "$DRY_RUN" = "1" ]; then
   # The rehearsal now goes through the factory, because that is the only way a lobby is made — the
   # deploy no longer produces a standalone game. So this exercises the path players actually take.
   #
-  # The buy-in has to cover the round fees, since the pot pays for the game as well as the winner.
-  ENTRY_FEE_UNITS=$((30 * 1000000))
-  CONFIG="($CAMPAIGN_DURATION,$BALLOT_DURATION,$TALLY_GRACE,$TEAM_COUNT,$MIN_MEMBERS_PER_TEAM,$MIN_PLAYERS,86400,$MERGE_AT,$FINALISTS,$MAX_MISSED_CHECKINS,$ENTRY_FEE_UNITS)"
+  # The creator funds the pot; joining is free. The funding has to cover the round fees, since the
+  # pot pays for the game as well as the winner.
+  FUNDING_UNITS=$((200 * 1000000))
+  CONFIG="($CAMPAIGN_DURATION,$BALLOT_DURATION,$TALLY_GRACE,$TEAM_COUNT,$MIN_MEMBERS_PER_TEAM,$MIN_PLAYERS,86400,$MERGE_AT,$FINALISTS,$MAX_MISSED_CHECKINS,0)"
 
-  cast send "$FACTORY" "create((uint64,uint64,uint64,uint8,uint8,uint8,uint64,uint8,uint8,uint8,uint256),string)" \
-    "$CONFIG" "Rehearsal" --gas-limit 9000000 \
+  # Approved to the factory, not the game: the game has no address until `create` returns.
+  cast send "$FEE_TOKEN" "approve(address,uint256)" "$FACTORY" "$FUNDING_UNITS" \
+    --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null 2>&1 || fail "approve to factory failed"
+
+  cast send "$FACTORY" \
+    "create((uint64,uint64,uint64,uint8,uint8,uint8,uint64,uint8,uint8,uint8,uint256),string,uint256)" \
+    "$CONFIG" "Rehearsal" "$FUNDING_UNITS" --gas-limit 9000000 \
     --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null 2>&1 || fail "factory.create failed"
 
   GAME="$(cast call "$FACTORY" 'games(uint256)(address)' 0 --rpc-url "$RPC" 2>/dev/null)"
@@ -337,11 +343,9 @@ if [ "$DRY_RUN" = "1" ]; then
     PLAYER="$(cast wallet address --private-key "$KEY")"
     TEAM=$(((i % TEAM_COUNT) + 1))
 
-    # Players buy in, so each needs fee tokens and an approval before joining.
-    cast send "$FAUCET" "faucet()" --rpc-url "$RPC" --private-key "$KEY" >/dev/null 2>&1 || true
-    cast send "$FEE_TOKEN" "approve(address,uint256)" "$GAME" "$ENTRY_FEE_UNITS" \
-      --rpc-url "$RPC" --private-key "$KEY" >/dev/null 2>&1 || fail "approve failed for player $i"
-
+    # No faucet call and no approval: joining is free, so a player needs gas and nothing else.
+    # That this loop is now three lines shorter is the point of the change.
+    #
     # A fixed gas limit: estimation races the ERC20Votes checkpoint write, whose cost is
     # state-dependent, and an underestimate surfaces as an opaque out-of-gas.
     cast send "$GAME" "join(uint8)" "$TEAM" --gas-limit 500000 \
@@ -465,12 +469,12 @@ $(printf '\033[1m')Deployed to Sepolia.$(printf '\033[0m')
 
   1. bun run app:dev   — app/.env already points at this deployment.
 
-  2. Start a lobby from the app: pick how many players it takes to begin and what the buy-in is.
-     The buy-in is the pot, and the pot pays both the E3 fees and the prize, so the form warns if
-     the total would not cover the rounds.
+  2. Start a lobby from the app: pick how many players it takes to begin, and how much you put up.
+     You fund the pot yourself, and it pays both the E3 fees and the prize, so the form warns if
+     the amount would not cover the rounds. Claim fee tokens from the faucet first.
 
-  3. Import funded keys into MetaMask on Sepolia and join with each. Every player pays the buy-in
-     in fee tokens and needs Sepolia ETH for gas. Anyone can Start once the lobby hits its floor.
+  3. Import keys into MetaMask on Sepolia and join with each. Joining is free — players need
+     Sepolia ETH for gas and nothing else. Anyone can Start once the lobby hits its floor.
 
   4. The campaign window is ${CAMPAIGN_DURATION}s. The ballot cannot open before the committee
      publishes its key, so watch that the key lands inside that window on the first round and

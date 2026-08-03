@@ -1,7 +1,8 @@
 import { useState, type FC } from "react";
 import type { Address } from "viem";
 import { useReadContract, useReadContracts, useWriteContract } from "wagmi";
-import { PUB_GAME_FACTORY_ADDRESS } from "@/constants";
+import { erc20Abi } from "viem";
+import { PUB_GAME_FACTORY_ADDRESS, PUB_INTERFOLD_FEE_TOKEN_ADDRESS } from "@/constants";
 import { useAlerts } from "@/context/Alerts";
 import { GameFactoryAbi } from "../artifacts/GameFactory";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
@@ -122,11 +123,10 @@ export const Lobbies: FC = () => {
             const minPlayers = config ? Number(config[5]) : undefined;
             const entryFee = config ? (config[10] as bigint) : undefined;
 
-            // A lobby whose pot will still be empty when it fills can never open a round, because
-            // the E3 fee is paid from the pot. Better to say so on the list than to let somebody
-            // join, wait for it to fill, and watch Start revert.
-            const willBeEmpty =
-              stage === Stage.Lobby && entryFee === 0n && (pot ?? 0n) === 0n;
+            // A lobby's pot can never open a round if it is empty, because the E3 fee is paid from
+            // it. The factory refuses to create one, but a game deployed directly can be in this
+            // state, and it is better said on the list than discovered when Start reverts.
+            const empty = stage === Stage.Lobby && (pot ?? 0n) === 0n && entryFee === 0n;
 
             return (
               <button
@@ -139,10 +139,13 @@ export const Lobbies: FC = () => {
                 <span className="un-lobby-meta">
                   {stageWord(stage)}
                   {alive !== undefined && minPlayers !== undefined && ` · ${alive}/${minPlayers}`}
-                  {entryFee !== undefined &&
-                    ` · ${entryFee === 0n ? "free" : `${feeToken.format(entryFee) ?? entryFee} ${feeToken.symbol ?? ""}`}`}
+                  {/* The pot, not the entry fee: what a player wants to know is what is on the
+                      table, and joining is free. A lobby that still charges one says so. */}
+                  {pot !== undefined && ` · ${feeToken.format(pot) ?? pot} ${feeToken.symbol ?? ""} pot`}
+                  {entryFee !== undefined && entryFee !== 0n &&
+                    ` · ${feeToken.format(entryFee) ?? entryFee} to join`}
                 </span>
-                {willBeEmpty && <span className="un-tag un-tag-block">UNFUNDED</span>}
+                {empty && <span className="un-tag un-tag-block">UNFUNDED</span>}
                 {game === active && <span className="un-tag un-tag-you">VIEWING</span>}
               </button>
             );
@@ -166,28 +169,35 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
   const [name, setName] = useState("");
   const [players, setPlayers] = useState(6);
   const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<"idle" | "approving" | "creating">("idle");
 
-  // The pot pays for the game as well as the winner, so a lobby that collects nothing can never
-  // open a round — `_createProposal` reverts on an empty pot. Defaulting to zero would make the
-  // obvious first move produce a lobby that fills, hits Start, and fails.
-  const minimumPerPlayer = Math.ceil((expectedE3s(players) * FEE_PER_E3) / players);
-  const [buyIn, setBuyIn] = useState(String(minimumPerPlayer));
-
-  const buyInValue = Number(buyIn || "0");
-  const collected = buyInValue * players;
   const rounds = expectedE3s(players);
   const needed = rounds * FEE_PER_E3;
-  const underfunded = collected < needed;
-  const prize = Math.max(0, collected - needed);
   const sym = feeToken.symbol ?? "tokens";
+
+  // Default to twice the fee bill: enough to run the game, with the other half as the prize. The
+  // bare minimum is a valid lobby that pays its winner nothing, which is not what anyone means by
+  // "start a game".
+  //
+  // Tracks the player count until the creator types their own figure — the suggestion is worthless
+  // if it still reads "84" after they change a 6-player game to a 20-player one, and overwriting a
+  // number somebody deliberately entered is worse than a stale suggestion.
+  const [funding, setFunding] = useState<string | null>(null);
+  const fundingValue = Number(funding ?? String(needed * 2)) || 0;
+  const underfunded = fundingValue < needed;
+  const prize = Math.max(0, fundingValue - needed);
 
   const create = async () => {
     try {
       const decimals = feeToken.decimals ?? 6;
-      const entryFee = BigInt(Math.round(Number(buyIn || "0") * 10 ** decimals));
+      const amount = BigInt(Math.round(fundingValue * 10 ** decimals));
 
       // Tribes of at least one, and a merge below the floor so tribal rounds actually happen —
       // starting at or under `mergeAt` dissolves the tribes before the first round.
+      //
+      // `entryFee: 0` on purpose. The creator stands the whole pot, so joining costs a player
+      // nothing but gas — no balance to acquire, no approval, no judgement about what a game is
+      // worth before they have played one.
       const config = {
         campaignDuration: 900n,
         ballotDuration: 2700n,
@@ -196,25 +206,43 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
         minPlayers: players,
         lobbyTimeout: 86_400n,
         maxMissedCheckIns: 2,
-        entryFee,
+        entryFee: 0n,
         ...shapeFor(players),
       };
 
+      // Two transactions, and the approval must be the factory rather than the game: the game does
+      // not have an address until `create` runs. Sent unconditionally rather than after an
+      // allowance read — one extra signature is cheaper than a stale allowance failing the create
+      // and leaving the creator to guess why.
+      setStep("approving");
+      await writeContractAsync({
+        address: PUB_INTERFOLD_FEE_TOKEN_ADDRESS,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [PUB_GAME_FACTORY_ADDRESS, amount],
+      });
+
+      setStep("creating");
       await writeContractAsync({
         address: PUB_GAME_FACTORY_ADDRESS,
         abi: GameFactoryAbi,
         functionName: "create",
-        args: [config, name.trim() || "Unravel"],
+        args: [config, name.trim() || "Unravel", amount],
       });
 
       // The new lobby is not selected automatically: the creator may be starting one for other
       // people, and silently moving them off the game they were watching is worse than a click.
-      addAlert("Lobby created. Pick it from the list to join.", { type: "success", timeout: 5000 });
+      addAlert("Lobby created and funded. Pick it from the list to join.", {
+        type: "success",
+        timeout: 5000,
+      });
       setOpen(false);
       onCreated();
     } catch (e) {
       console.error("create lobby:", e);
       addAlert(describeGameError(e), { type: "error" });
+    } finally {
+      setStep("idle");
     }
   };
 
@@ -251,38 +279,50 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
         </label>
 
         <label className="un-field">
-          <span className="un-field-label">Buy-in ({feeToken.symbol ?? "tokens"})</span>
-          <input className="un-input" value={buyIn} onChange={(e) => setBuyIn(e.target.value.replace(/[^0-9.]/g, ""))} />
+          <span className="un-field-label">You put up ({sym})</span>
+          <input
+            className="un-input"
+            value={funding ?? String(needed * 2)}
+            onChange={(e) => setFunding(e.target.value.replace(/[^0-9.]/g, ""))}
+          />
         </label>
       </div>
 
       <p className="un-fine" style={{ maxWidth: "68ch" }}>
-        Anyone can join, and anyone can start it once {players} have. The buy-in goes straight into
-        the pot — and if the lobby never fills, anyone can cancel it after a day and every player
-        takes their stake back.
+        Free to join. You stand the pot; everyone else needs nothing but gas. Anyone can start it
+        once {players} have joined — and if it never fills, anyone can cancel after a day and you
+        take your money back.
       </p>
 
       {/* The pot funds the game and the prize from the same pool, which is easy to get wrong in the
           direction of an unplayable lobby — so show the arithmetic rather than a verdict. */}
       <div className="un-stack" style={{ gap: 6, maxWidth: "68ch" }}>
         <p className="un-fine">
-          {players} × {buyInValue || 0} {sym} = <strong>{collected} {sym}</strong> in the pot. A{" "}
-          {players}-player game runs about {rounds} secret {rounds === 1 ? "ballot" : "ballots"}, and
-          each one costs roughly {FEE_PER_E3} {sym} to have the committee encrypt, tally and decrypt
-          — {needed} {sym} in all, paid out of the pot as the game goes.
+          A {players}-player game runs about {rounds} secret {rounds === 1 ? "ballot" : "ballots"},
+          and each one costs roughly {FEE_PER_E3} {sym} to have the committee encrypt, tally and
+          decrypt — <strong>{needed} {sym}</strong> in all, spent from the pot as the game goes.
         </p>
         <p className={underfunded ? "un-warn" : "un-fine"}>
           {underfunded
-            ? buyInValue === 0
-              ? `A free lobby has no pot, so it cannot open a single round.`
-              : `That leaves nothing for the ballots after ${Math.floor(collected / FEE_PER_E3)} of ${rounds}, so the game would stall part-way. About ${minimumPerPlayer} ${sym} each covers it.`
+            ? fundingValue === 0
+              ? `A lobby with an empty pot cannot open a single round.`
+              : `${fundingValue} ${sym} runs out after ${Math.floor(fundingValue / FEE_PER_E3)} of ${rounds} ballots, so the game would stall part-way.`
             : `The winner takes what is left: about ${prize} ${sym}.`}
         </p>
       </div>
 
       <div className="un-row">
-        <button type="button" className="un-btn" disabled={isPending || buyInValue === 0} onClick={() => void create()}>
-          {isPending ? "Creating…" : "Create"}
+        <button
+          type="button"
+          className="un-btn"
+          disabled={isPending || underfunded}
+          onClick={() => void create()}
+        >
+          {step === "approving"
+            ? `Approving ${fundingValue} ${sym}…`
+            : step === "creating"
+              ? "Creating…"
+              : "Create and fund"}
         </button>
         <button type="button" className="un-btn un-btn-ghost" onClick={() => setOpen(false)}>
           Cancel

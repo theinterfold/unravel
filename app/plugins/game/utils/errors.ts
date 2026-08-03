@@ -89,6 +89,8 @@ function describe(name: string, args: readonly unknown[]): string | undefined {
       return n(1) === 0
         ? "The pot is empty, so the round's E3 fee cannot be paid. Fund the game before opening another round."
         : `The pot cannot cover the round's fee — ${n(0)} needed, ${n(1)} available.`;
+    case "FundingRequired":
+      return "A lobby needs a pot to pay for its ballots, so it cannot be created with nothing in it.";
     case "NothingToWithdraw":
       return "There is nothing to withdraw.";
     case "NothingToRefund":

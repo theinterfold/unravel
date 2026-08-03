@@ -11,13 +11,14 @@ import {RosterToken} from "../src/RosterToken.sol";
 import {ICrispVotingPlugin} from "../src/interfaces/ICrispVotingPlugin.sol";
 import {MockFeeToken, MockPlugin} from "./mocks/Mocks.sol";
 
-/// @notice Lobbies created by anyone, funded by their players, and recoverable when they never fill.
+/// @notice Lobbies created and funded by one person, free for everyone else to join.
 contract GameFactoryTest is Test {
     uint64 internal constant CAMPAIGN = 1 hours;
     uint64 internal constant BALLOT = 3 hours;
     uint64 internal constant GRACE = 1 hours;
     uint64 internal constant LOBBY_TIMEOUT = 1 days;
     uint256 internal constant FEE = 1e6;
+    uint256 internal constant FUNDING = 100e6;
     uint256 internal constant ENTRY_FEE = 5e6;
 
     GameFactory internal factory;
@@ -54,9 +55,21 @@ contract GameFactoryTest is Test {
         });
     }
 
-    function _create(uint256 entryFee, uint8 minPlayers) internal returns (SurvivalGame game) {
-        vm.prank(creator);
-        game = factory.create(_config(entryFee, minPlayers), "Test");
+    /// @dev The creator's side of creating a lobby: hold the funding, approve the factory, create.
+    function _create(SurvivalGame.Config memory config, uint256 funding, string memory name)
+        internal
+        returns (SurvivalGame game)
+    {
+        fee.mint(creator, funding);
+        vm.startPrank(creator);
+        fee.approve(address(factory), funding);
+        game = factory.create(config, name, funding);
+        vm.stopPrank();
+    }
+
+    /// @dev The ordinary case: free to join, paid for by whoever started it.
+    function _create(uint8 minPlayers) internal returns (SurvivalGame game) {
+        return _create(_config(0, minPlayers), FUNDING, "Test");
     }
 
     function _join(SurvivalGame game, uint256 index, uint8 team, uint256 entryFee) internal {
@@ -73,7 +86,7 @@ contract GameFactoryTest is Test {
     // ─── Creation ────────────────────────────────────────────────────────────────────────────
 
     function test_create_producesAPlayableLobby() public {
-        SurvivalGame game = _create(ENTRY_FEE, 4);
+        SurvivalGame game = _create(4);
 
         assertEq(factory.gameCount(), 1);
         assertEq(factory.games(0), address(game));
@@ -83,15 +96,32 @@ contract GameFactoryTest is Test {
         assertEq(RosterToken(address(game.lifeToken())).owner(), address(game));
         assertEq(RosterToken(address(game.juryToken())).owner(), address(game));
 
-        _join(game, 0, 1, ENTRY_FEE);
+        _join(game, 0, 1, 0);
         assertEq(game.aliveCount(), 1);
+    }
+
+    /// @dev The whole point of funding at creation: a player needs nothing but gas. No token
+    ///      balance, no approval, no decision about how much a game is worth to them.
+    function test_create_creatorFundsThePotAndPlayersJoinFree() public {
+        SurvivalGame game = _create(4);
+
+        assertEq(game.pot(), FUNDING, "the pot is live from the moment the lobby exists");
+        assertEq(fee.balanceOf(address(game)), FUNDING);
+        assertEq(fee.balanceOf(creator), 0);
+        assertEq(fee.allowance(address(factory), address(game)), 0, "no allowance is left behind");
+
+        _join(game, 0, 1, 0);
+        _join(game, 1, 2, 0);
+
+        assertEq(game.pot(), FUNDING, "joining costs nothing, so the pot does not move");
+        assertEq(fee.balanceOf(players[0]), 0);
     }
 
     /// @dev Lobbies must not collide: each gets its own badges, so one game's roster cannot appear
     ///      in another's balances.
     function test_create_lobbiesGetDistinctBadges() public {
-        SurvivalGame a = _create(ENTRY_FEE, 4);
-        SurvivalGame b = _create(ENTRY_FEE, 4);
+        SurvivalGame a = _create(4);
+        SurvivalGame b = _create(4);
 
         assertTrue(address(a.lifeToken()) != address(b.lifeToken()));
         assertTrue(address(a.juryToken()) != address(b.juryToken()));
@@ -101,25 +131,38 @@ contract GameFactoryTest is Test {
     /// @dev An impossible round shape must fail at creation rather than produce a lobby nobody can
     ///      play. The game's own constructor is the authority; this only checks it is reached.
     function test_create_rejectsAnImpossibleConfig() public {
-        SurvivalGame.Config memory bad = _config(ENTRY_FEE, 4);
+        SurvivalGame.Config memory bad = _config(0, 4);
         bad.minPlayers = 1; // at or below finalists
 
-        vm.prank(creator);
+        fee.mint(creator, FUNDING);
+        vm.startPrank(creator);
+        fee.approve(address(factory), FUNDING);
         vm.expectRevert(SurvivalGame.InvalidConfig.selector);
-        factory.create(bad, "Bad");
+        factory.create(bad, "Bad", FUNDING);
+        vm.stopPrank();
     }
 
-    /// @dev A lobby nobody funds cannot open a round, so the factory refuses to make one.
-    function test_create_rejectsAFreeLobby() public {
+    /// @dev A lobby nobody funds cannot open a round, so the factory refuses to make one. The
+    ///      creator is the only source now that joining is free.
+    function test_create_rejectsAnUnfundedLobby() public {
         vm.prank(creator);
-        vm.expectRevert(GameFactory.BuyInRequired.selector);
-        factory.create(_config(0, 4), "Free");
+        vm.expectRevert(GameFactory.FundingRequired.selector);
+        factory.create(_config(0, 4), "Free", 0);
+    }
+
+    /// @dev The funding is pulled, not promised: no approval means no lobby, rather than a lobby
+    ///      that claims a pot it never received.
+    function test_create_rejectsFundingItCannotCollect() public {
+        fee.mint(creator, FUNDING);
+        vm.prank(creator); // no approve
+        vm.expectRevert();
+        factory.create(_config(0, 4), "Broke", FUNDING);
     }
 
     function test_latest_returnsNewestFirstAndPages() public {
-        SurvivalGame a = _create(ENTRY_FEE, 4);
-        SurvivalGame b = _create(ENTRY_FEE, 4);
-        SurvivalGame c = _create(ENTRY_FEE, 4);
+        SurvivalGame a = _create(4);
+        SurvivalGame b = _create(4);
+        SurvivalGame c = _create(4);
 
         address[] memory page = factory.latest(0, 2);
         assertEq(page.length, 2);
@@ -133,33 +176,48 @@ contract GameFactoryTest is Test {
         assertEq(factory.latest(9, 2).length, 0, "an offset past the end is empty, not a revert");
     }
 
-    // ─── Buy-in ──────────────────────────────────────────────────────────────────────────────
+    // ─── Entry fees ──────────────────────────────────────────────────────────────────────────
 
-    /// @dev The point of a buy-in: the players fund the pot, so nobody has to put money up front.
-    function test_buyIn_playersFundThePot() public {
-        SurvivalGame game = _create(ENTRY_FEE, 4);
+    /// @dev A creator may still ask players to stake on top — the factory does not require it, but
+    ///      the game supports it, and a staked lobby's refund path has to keep working.
+    function test_entryFee_stillTopsUpThePotWhenTheCreatorAsksForOne() public {
+        SurvivalGame game = _create(_config(ENTRY_FEE, 4), FUNDING, "Staked");
 
         _join(game, 0, 1, ENTRY_FEE);
         _join(game, 1, 2, ENTRY_FEE);
 
-        assertEq(game.pot(), ENTRY_FEE * 2);
-        assertEq(fee.balanceOf(address(game)), ENTRY_FEE * 2);
+        assertEq(game.pot(), FUNDING + ENTRY_FEE * 2);
     }
 
     // ─── Cancelling ──────────────────────────────────────────────────────────────────────────
 
-    /// @dev With open joining and a buy-in, the money's risk is not a hostile joiner — it is a lobby
-    ///      that simply never fills. Anyone can release it once the timeout passes.
-    function test_cancel_refundsEveryPlayer() public {
-        SurvivalGame game = _create(ENTRY_FEE, 4);
+    /// @dev With the creator funding it, a lobby that never fills strands their money rather than
+    ///      the players'. Cancelling frees it, and `sweep` is how they get it back.
+    function test_cancel_returnsTheCreatorsFunding() public {
+        SurvivalGame game = _create(4);
+        _join(game, 0, 1, 0);
+
+        vm.warp(block.timestamp + LOBBY_TIMEOUT);
+        game.cancelLobby();
+
+        assertEq(uint8(game.stage()), uint8(SurvivalGame.Stage.Cancelled));
+        assertEq(game.pot(), FUNDING, "nothing was staked, so nothing is owed to players");
+
+        vm.prank(creator);
+        game.sweep(creator);
+        assertEq(fee.balanceOf(creator), FUNDING);
+    }
+
+    /// @dev A staked lobby refunds the players first; only what the creator put in is sweepable.
+    function test_cancel_refundsEveryPlayerBeforeTheCreator() public {
+        SurvivalGame game = _create(_config(ENTRY_FEE, 4), FUNDING, "Staked");
         _join(game, 0, 1, ENTRY_FEE);
         _join(game, 1, 2, ENTRY_FEE);
 
         vm.warp(block.timestamp + LOBBY_TIMEOUT);
         game.cancelLobby();
 
-        assertEq(uint8(game.stage()), uint8(SurvivalGame.Stage.Cancelled));
-        assertEq(game.pot(), 0, "refunds leave the pot");
+        assertEq(game.pot(), FUNDING, "refunds leave the pot; the funding stays");
 
         vm.prank(players[0]);
         game.claimRefund();
@@ -174,11 +232,16 @@ contract GameFactoryTest is Test {
         vm.prank(players[1]);
         game.claimRefund();
         assertEq(fee.balanceOf(players[1]), ENTRY_FEE);
+
+        // And the sweep cannot reach either of them.
+        vm.prank(creator);
+        game.sweep(creator);
+        assertEq(fee.balanceOf(creator), FUNDING, "only the funding, not the entry fees");
     }
 
     function test_cancel_rejectedBeforeTheTimeout() public {
-        SurvivalGame game = _create(ENTRY_FEE, 4);
-        _join(game, 0, 1, ENTRY_FEE);
+        SurvivalGame game = _create(4);
+        _join(game, 0, 1, 0);
 
         vm.expectRevert(
             abi.encodeWithSelector(SurvivalGame.LobbyStillOpen.selector, game.lobbyOpenedAt() + LOBBY_TIMEOUT)
@@ -190,63 +253,41 @@ contract GameFactoryTest is Test {
     ///      so cancelling would be a way to destroy a viable lobby rather than to save a dead one.
     function test_cancel_rejectedOnceTheLobbyCouldStart() public {
         // A floor of three: the smallest that clears `finalists` for this shape.
-        SurvivalGame game = _create(ENTRY_FEE, 3);
-        _join(game, 0, 1, ENTRY_FEE);
-        _join(game, 1, 2, ENTRY_FEE);
-        _join(game, 2, 1, ENTRY_FEE);
+        SurvivalGame game = _create(3);
+        _join(game, 0, 1, 0);
+        _join(game, 1, 2, 0);
+        _join(game, 2, 1, 0);
 
         vm.warp(block.timestamp + LOBBY_TIMEOUT);
         vm.expectRevert(abi.encodeWithSelector(SurvivalGame.LobbyIncomplete.selector, 3, 3));
         game.cancelLobby();
     }
 
-    /// @dev A creator cannot strand a funded lobby by doing nothing, because cancelling does not
-    ///      need them either.
+    /// @dev A creator cannot strand a lobby by doing nothing, because cancelling does not need them
+    ///      either. It matters more now that the money at risk is theirs: anyone can release it,
+    ///      but only they can collect it.
     function test_cancel_isPermissionlessLikeStarting() public {
-        SurvivalGame game = _create(ENTRY_FEE, 4);
-        _join(game, 0, 1, ENTRY_FEE);
+        SurvivalGame game = _create(4);
+        _join(game, 0, 1, 0);
 
         vm.warp(block.timestamp + LOBBY_TIMEOUT);
         vm.prank(address(0xDEAD)); // a stranger, not the creator or a player
         game.cancelLobby();
 
         assertEq(uint8(game.stage()), uint8(SurvivalGame.Stage.Cancelled));
+
+        vm.prank(address(0xDEAD));
+        vm.expectRevert();
+        game.sweep(address(0xDEAD));
     }
 
     function test_cancel_rejectedWhenTheTimeoutIsDisabled() public {
-        SurvivalGame.Config memory cfg = _config(ENTRY_FEE, 4);
+        SurvivalGame.Config memory cfg = _config(0, 4);
         cfg.lobbyTimeout = 0;
-        vm.prank(creator);
-        SurvivalGame game = factory.create(cfg, "NoTimeout");
+        SurvivalGame game = _create(cfg, FUNDING, "NoTimeout");
 
         vm.warp(block.timestamp + 3650 days);
         vm.expectRevert(SurvivalGame.LobbyTimeoutDisabled.selector);
         game.cancelLobby();
-    }
-
-    /// @dev Sweeping a cancelled lobby must not reach the players' money — the refunds have already
-    ///      left the pot, so only the creator's own funding remains.
-    function test_sweep_cannotTakeRefundsFromACancelledLobby() public {
-        SurvivalGame game = _create(ENTRY_FEE, 4);
-        _join(game, 0, 1, ENTRY_FEE);
-
-        // The creator tops the pot up beyond the entry fees.
-        fee.mint(creator, FEE);
-        vm.startPrank(creator);
-        fee.approve(address(game), FEE);
-        game.fund(FEE);
-        vm.stopPrank();
-
-        vm.warp(block.timestamp + LOBBY_TIMEOUT);
-        game.cancelLobby();
-
-        vm.prank(creator);
-        game.sweep(creator);
-        assertEq(fee.balanceOf(creator), FEE, "only the funding, not the entry fee");
-
-        // The player's refund survived the sweep.
-        vm.prank(players[0]);
-        game.claimRefund();
-        assertEq(fee.balanceOf(players[0]), ENTRY_FEE);
     }
 }

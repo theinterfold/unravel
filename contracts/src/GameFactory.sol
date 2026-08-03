@@ -2,6 +2,7 @@
 pragma solidity 0.8.29;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {SurvivalGame} from "./SurvivalGame.sol";
 import {GameDeployer} from "./GameDeployer.sol";
@@ -23,6 +24,8 @@ import {ICrispVotingPlugin} from "./interfaces/ICrispVotingPlugin.sol";
 ///      game, so two games cannot hold the same pair; and a shared badge would also mix one lobby's
 ///      players into another's balances.
 contract GameFactory {
+    using SafeERC20 for IERC20;
+
     /// @notice Holds the game's creation code, which does not fit in here alongside the badges'.
     /// @dev See `GameDeployer`: EIP-170 applies per contract, so the three creation codes are split
     ///      across two rather than crammed into one.
@@ -42,15 +45,15 @@ contract GameFactory {
         address indexed game,
         address indexed creator,
         uint256 indexed index,
-        uint256 entryFee,
+        uint256 funding,
         uint8 minPlayers,
         address lifeToken,
         address juryToken
     );
 
     error ZeroAddress();
-    /// @notice A lobby with no buy-in has no pot, and a lobby with no pot can never open a round.
-    error BuyInRequired();
+    /// @notice A lobby with an empty pot can never open a round, so the creator has to fill it.
+    error FundingRequired();
 
     constructor(GameDeployer deployer_, ICrispVotingPlugin plugin_, IERC20 feeToken_) {
         if (
@@ -71,25 +74,31 @@ contract GameFactory {
     ///      hostage.
     ///
     ///      `SurvivalGame`'s constructor validates the config, so an impossible round shape reverts
-    ///      here rather than producing a lobby nobody can play. The buy-in is checked on top of
-    ///      that, because a free lobby is valid as a config and unplayable as a lobby.
+    ///      here rather than producing a lobby nobody can play. The funding is checked on top of
+    ///      that, because an empty pot is valid as a config and unplayable as a lobby.
     ///
-    /// @param config The round shape, including the entry fee and the lobby timeout.
+    /// @param config The round shape and the lobby timeout.
     /// @param name A short label for the badges, so a player's wallet distinguishes one game's LIFE
     ///        from another's.
+    /// @param funding Fee tokens to seed the pot with, pulled from the caller. Must be approved to
+    ///        this factory first — the game does not exist yet, so it cannot be the spender.
     /// @return game The new game.
-    function create(SurvivalGame.Config calldata config, string calldata name)
+    function create(SurvivalGame.Config calldata config, string calldata name, uint256 funding)
         external
         returns (SurvivalGame game)
     {
         // The pot pays for the game as well as the winner: every round's E3 fee comes out of it, so
-        // a lobby that collects nothing fills, gets started, and reverts on the first round. Nobody
-        // is going to fund a stranger's lobby on their behalf, so the buy-in is the only source.
+        // a lobby with nothing in it fills, gets started, and reverts on the first round.
+        //
+        // The creator pays, not the players. Making everyone stake to join turns a game you can
+        // invite someone into over a link into one they have to fund and approve a token for
+        // first, and that is the step where people leave. `config.entryFee` still exists for a
+        // game deployed directly, but a lobby is the creator's to stand.
         //
         // Enforced here rather than in `SurvivalGame`, because a directly-deployed game may
-        // legitimately be free to enter and funded up front by whoever runs it. That is an operator
-        // choice; a lobby anyone can create is not.
-        if (config.entryFee == 0) revert BuyInRequired();
+        // legitimately be funded later by whoever runs it. That is an operator choice; a lobby
+        // anyone can create is not.
+        if (funding == 0) revert FundingRequired();
 
         RosterToken life = new RosterToken(string.concat(name, " Life"), "LIFE", address(this));
         RosterToken jury = new RosterToken(string.concat(name, " Jury"), "JURY", address(this));
@@ -110,13 +119,19 @@ contract GameFactory {
         life.transferOwnership(address(game));
         jury.transferOwnership(address(game));
 
+        // Routed through the factory because `fund` pulls from its own caller, and the game had no
+        // address to approve until a moment ago. The creator approves this factory instead.
+        feeToken.safeTransferFrom(msg.sender, address(this), funding);
+        feeToken.forceApprove(address(game), funding);
+        game.fund(funding);
+
         games.push(address(game));
 
         emit LobbyCreated(
             address(game),
             msg.sender,
             games.length - 1,
-            config.entryFee,
+            funding,
             config.minPlayers,
             address(life),
             address(jury)

@@ -148,7 +148,7 @@ export default function RulesPage() {
           <p className="un-note">
             {cfg?.entryFee && cfg.entryFee > 0n
               ? `Joining costs ${feeToken.format(cfg.entryFee) ?? cfg.entryFee.toString()} ${feeToken.symbol ?? ""}, which goes into the pot.`
-              : "Joining is free — the pot is funded up front, and entry costs you nothing but gas."}
+              : "Joining is free. Whoever started this lobby put the pot up themselves, so playing costs you nothing but gas."}
           </p>
         </Section>
 
