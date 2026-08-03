@@ -1604,3 +1604,10 @@ a.un-cipher-tx:hover {
   font-size: 10.5px;
   color: var(--un-dim);
 }
+
+/* A warning that is not a failure: something the player can still choose, and probably should not. */
+.un-warn {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--un-condemned-soft);
+}

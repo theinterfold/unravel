@@ -13,6 +13,17 @@ import { describeGameError } from "../utils/errors";
 
 const PAGE = 12;
 
+/// Roughly what Interfold charges for one E3 at the Minimum committee, in whole fee tokens.
+/// @dev Only used to warn — the real quote depends on the input window and the committee, and this
+///      is deliberately a slight over-estimate so the warning errs towards "fund it more".
+const FEE_PER_E3 = 14;
+
+/// Rounds a game of `players` will need: two E3s per elimination down to two finalists, plus the
+/// jury round.
+function expectedE3s(players: number): number {
+  return Math.max(1, (players - 2) * 2 + 1);
+}
+
 /// The lobby browser: what exists, and how to start one.
 ///
 /// Creating a game used to mean running a deploy script with a private key, which put it in the
@@ -44,6 +55,7 @@ export const Lobbies: FC = () => {
       { address: a, abi: SurvivalGameAbi, functionName: "stage" as const },
       { address: a, abi: SurvivalGameAbi, functionName: "aliveCount" as const },
       { address: a, abi: SurvivalGameAbi, functionName: "config" as const },
+      { address: a, abi: SurvivalGameAbi, functionName: "pot" as const },
     ]),
     query: { enabled: addresses.length > 0, refetchInterval: 15_000 },
   });
@@ -79,11 +91,18 @@ export const Lobbies: FC = () => {
       ) : (
         <div className="un-stack" style={{ gap: 8 }}>
           {addresses.map((game, i) => {
-            const stage = states?.[i * 3]?.result as number | undefined;
-            const alive = states?.[i * 3 + 1]?.result as bigint | undefined;
-            const config = states?.[i * 3 + 2]?.result as readonly unknown[] | undefined;
+            const stage = states?.[i * 4]?.result as number | undefined;
+            const alive = states?.[i * 4 + 1]?.result as bigint | undefined;
+            const config = states?.[i * 4 + 2]?.result as readonly unknown[] | undefined;
+            const pot = states?.[i * 4 + 3]?.result as bigint | undefined;
             const minPlayers = config ? Number(config[5]) : undefined;
             const entryFee = config ? (config[10] as bigint) : undefined;
+
+            // A lobby whose pot will still be empty when it fills can never open a round, because
+            // the E3 fee is paid from the pot. Better to say so on the list than to let somebody
+            // join, wait for it to fill, and watch Start revert.
+            const willBeEmpty =
+              stage === Stage.Lobby && entryFee === 0n && (pot ?? 0n) === 0n;
 
             return (
               <button
@@ -99,6 +118,7 @@ export const Lobbies: FC = () => {
                   {entryFee !== undefined &&
                     ` · ${entryFee === 0n ? "free" : `${feeToken.format(entryFee) ?? entryFee} ${feeToken.symbol ?? ""}`}`}
                 </span>
+                {willBeEmpty && <span className="un-tag un-tag-block">UNFUNDED</span>}
                 {game === active && <span className="un-tag un-tag-you">VIEWING</span>}
               </button>
             );
@@ -121,8 +141,18 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
 
   const [name, setName] = useState("");
   const [players, setPlayers] = useState(6);
-  const [buyIn, setBuyIn] = useState("0");
   const [open, setOpen] = useState(false);
+
+  // The pot pays for the game as well as the winner, so a lobby that collects nothing can never
+  // open a round — `_createProposal` reverts on an empty pot. Defaulting to zero would make the
+  // obvious first move produce a lobby that fills, hits Start, and fails.
+  const minimumPerPlayer = Math.ceil((expectedE3s(players) * FEE_PER_E3) / players);
+  const [buyIn, setBuyIn] = useState(String(minimumPerPlayer));
+
+  const buyInValue = Number(buyIn || "0");
+  const covers = buyInValue * players;
+  const needed = expectedE3s(players) * FEE_PER_E3;
+  const underfunded = covers < needed;
 
   const create = async () => {
     try {
@@ -208,8 +238,20 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
         takes their stake back.
       </p>
 
+      {/* The pot funds the game and the prize from the same pool, which is easy to get wrong in the
+          direction of an unplayable lobby. */}
+      <p className={underfunded ? "un-warn" : "un-fine"} style={{ maxWidth: "68ch" }}>
+        {underfunded
+          ? `A ${players}-player game needs about ${needed} ${feeToken.symbol ?? "tokens"} of encrypted votes. ${
+              buyInValue === 0
+                ? "A free lobby cannot open a round at all — the pot pays the fees."
+                : `${covers} would not cover it, so the game would stall part-way.`
+            } That is about ${minimumPerPlayer} each.`
+          : `Covers roughly ${needed} ${feeToken.symbol ?? "tokens"} of encrypted votes; the rest is the prize.`}
+      </p>
+
       <div className="un-row">
-        <button type="button" className="un-btn" disabled={isPending} onClick={() => void create()}>
+        <button type="button" className="un-btn" disabled={isPending || buyInValue === 0} onClick={() => void create()}>
           {isPending ? "Creating…" : "Create"}
         </button>
         <button type="button" className="un-btn un-btn-ghost" onClick={() => setOpen(false)}>
