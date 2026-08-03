@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAccount, useReadContract, useWriteContract } from "wagmi";
-import { PUB_GAME_ADDRESS, PUB_CHAIN_NAME } from "@/constants";
+import { PUB_CHAIN_NAME } from "@/constants";
 
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 import { useGame, useRound, useCurrentRoundId, useTeams } from "../hooks/useGame";
@@ -51,30 +51,13 @@ export default function GamePage() {
   const notifications = useNotifications();
   const feeToken = useFeeToken();
 
-  // A game that cannot be read is not a game that is loading. Collapsing the two leaves a wrong
-  // NEXT_PUBLIC_GAME_ADDRESS, a dead RPC and a chain with no contract at that address all showing
-  // the same spinner, which is the least diagnosable failure this app can produce.
-  if (!isLoading && !game) {
-    return (
-      <main className="un">
-        <div className="un-wrap" style={{ paddingTop: 80 }}>
-          <section className="un-panel un-stack">
-            <div className="un-label-dim">No game here</div>
-            <h2 className="un-title">Nothing is deployed at this address</h2>
-            <p className="un-note" style={{ maxWidth: "62ch" }}>
-              The app is pointed at <span className="un-mono">{PUB_GAME_ADDRESS || "(unset)"}</span> on{" "}
-              <span className="un-mono">{PUB_CHAIN_NAME}</span>, and the contract there did not answer. Either the
-              address is stale, the RPC is unreachable, or the game was deployed to a different chain.
-            </p>
-            {error && <p className="un-fine">{error.message}</p>}
-          </section>
-        </div>
-      </main>
-    );
-  }
-
   // With no default game configured, the first thing anybody sees is the browser rather than an
   // error about an address that was never meant to hold a contract.
+  //
+  // Checked before the unreadable-game branch below, not after: since lobbies replaced the single
+  // deployed game, NEXT_PUBLIC_GAME_ADDRESS is deliberately blank, and every read fails against the
+  // empty address. Ordered the other way round, a fresh deployment greets everyone with "nothing is
+  // deployed at this address" instead of the list of lobbies.
   if (!activeGame) {
     return (
       <main className="un">
@@ -89,6 +72,33 @@ export default function GamePage() {
               it is full enough.
             </p>
           </section>
+          <Lobbies />
+        </div>
+      </main>
+    );
+  }
+
+  // A game that cannot be read is not a game that is loading. Collapsing the two leaves a stale
+  // lobby address, a dead RPC and a chain with no contract at that address all showing the same
+  // spinner, which is the least diagnosable failure this app can produce.
+  if (!isLoading && !game) {
+    return (
+      <main className="un">
+        <Masthead game={EMPTY_GAME} address={address} />
+        <div className="un-wrap un-stack" style={{ gap: 18, paddingTop: 22 }}>
+          <section className="un-panel un-stack">
+            <div className="un-label-dim">No game here</div>
+            <h2 className="un-title">Nothing is deployed at this address</h2>
+            <p className="un-note" style={{ maxWidth: "62ch" }}>
+              The app is pointed at <span className="un-mono">{activeGame}</span> on{" "}
+              <span className="un-mono">{PUB_CHAIN_NAME}</span>, and the contract there did not answer. Either the
+              lobby belongs to an earlier deployment, the RPC is unreachable, or it was deployed to a
+              different chain.
+            </p>
+            {error && <p className="un-fine">{error.message}</p>}
+          </section>
+          {/* The selection is remembered across reloads, so a lobby from a previous deployment
+              would otherwise be a dead end with no way back to the list. */}
           <Lobbies />
         </div>
       </main>
@@ -150,13 +160,13 @@ export default function GamePage() {
 
   const call = (functionName: "startGame" | "openRound" | "settleRound") =>
     send(functionName, () =>
-      writeContractAsync({ address: PUB_GAME_ADDRESS, abi: SurvivalGameAbi, functionName, args: [] })
+      writeContractAsync({ address: activeGame, abi: SurvivalGameAbi, functionName, args: [] })
     );
 
   const joinTeam = () =>
     send("join", () =>
       writeContractAsync({
-        address: PUB_GAME_ADDRESS,
+        address: activeGame,
         abi: SurvivalGameAbi,
         functionName: "join",
         args: [team],
@@ -441,9 +451,10 @@ const CancelledLobby = ({
 }) => {
   const { addAlert } = useAlerts();
   const { writeContractAsync, isPending } = useWriteContract();
+  const gameAddress = useGameAddress();
 
   const { data: refund, refetch } = useReadContract({
-    address: PUB_GAME_ADDRESS,
+    address: gameAddress,
     abi: SurvivalGameAbi,
     functionName: "refundOf",
     args: self ? [self] : undefined,
@@ -455,7 +466,7 @@ const CancelledLobby = ({
   const claim = async () => {
     try {
       await writeContractAsync({
-        address: PUB_GAME_ADDRESS,
+        address: gameAddress,
         abi: SurvivalGameAbi,
         functionName: "claimRefund",
         args: [],

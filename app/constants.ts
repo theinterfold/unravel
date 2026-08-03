@@ -4,13 +4,15 @@ import type { Address } from "viem";
 import type { ChainName } from "./utils/chains";
 
 // Game contracts
+/// A lobby to open on by default. Normally blank: lobbies come from the factory and the choice is
+/// the player's, held in `ActiveGameProvider`. Set it to pin the app to one game.
 export const PUB_GAME_ADDRESS = (process.env.NEXT_PUBLIC_GAME_ADDRESS ?? "") as Address;
 /// The lobby factory. Optional: without it the app shows the single configured game and no browser.
 export const PUB_GAME_FACTORY_ADDRESS = (process.env.NEXT_PUBLIC_GAME_FACTORY_ADDRESS ?? "") as Address;
 /// Self-set display names, shared across lobbies. Optional: without it players are addresses.
 export const PUB_NAME_REGISTRY_ADDRESS = (process.env.NEXT_PUBLIC_NAME_REGISTRY_ADDRESS ?? "") as Address;
-export const PUB_LIFE_TOKEN_ADDRESS = (process.env.NEXT_PUBLIC_LIFE_TOKEN_ADDRESS ?? "") as Address;
-export const PUB_JURY_TOKEN_ADDRESS = (process.env.NEXT_PUBLIC_JURY_TOKEN_ADDRESS ?? "") as Address;
+// The LIFE and JURY badges are deliberately absent: the factory mints a fresh pair per lobby, so
+// there is no single pair to configure. Read them from the game when they are needed.
 // Paid to join, and used to settle Interfold E3 fees each round.
 export const PUB_INTERFOLD_FEE_TOKEN_ADDRESS = (process.env.NEXT_PUBLIC_INTERFOLD_FEE_TOKEN_ADDRESS ?? "") as Address;
 
