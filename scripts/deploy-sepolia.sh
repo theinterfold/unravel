@@ -373,6 +373,18 @@ if [ "$DRY_RUN" = "1" ]; then
     fail "the game recorded e3Id $E3 but Interfold has no such E3 — the request return was misread"
   echo "  Interfold confirms E3 $E3 exists"
 
+  # The declaration has to survive the whole chain — game to plugin to Interfold to the CRISP
+  # program — and if it does not, nothing errors: the coordinator falls back to deriving the
+  # electorate from token balances, and a council round quietly enfranchises everybody. Reading it
+  # back is the only way to know it arrived.
+  MODE="$(cast call "$CRISP_PROGRAM" 'censusModeOf(uint256)(uint8)' "$E3" --rpc-url "$RPC" 2>/dev/null | awk '{print $1}')"
+  case "${MODE:-}" in
+    1) echo "  census mode BY_REQUESTER — the coordinator will ask the game who may vote" ;;
+    0) fail "the round recorded census mode TOKEN. The coordinator will derive the electorate from
+       LIFE holders, so council and jury rounds will enfranchise the wrong players." ;;
+    *) fail "could not read censusModeOf($E3) from $CRISP_PROGRAM — is it the new CRISP program?" ;;
+  esac
+
   step "dry run complete — nothing was deployed to Sepolia"
   echo "  Everything above happened on the fork and is now discarded."
   echo "  Re-run without --dry-run to deploy for real."
