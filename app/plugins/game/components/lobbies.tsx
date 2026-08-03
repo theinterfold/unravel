@@ -1,12 +1,13 @@
 import { useState, type FC } from "react";
 import type { Address } from "viem";
-import { useReadContract, useReadContracts, useWriteContract } from "wagmi";
+import { useAccount, useReadContract, useReadContracts, useWriteContract } from "wagmi";
 import { erc20Abi } from "viem";
 import { PUB_GAME_FACTORY_ADDRESS, PUB_INTERFOLD_FEE_TOKEN_ADDRESS } from "@/constants";
 import { useAlerts } from "@/context/Alerts";
 import { GameFactoryAbi } from "../artifacts/GameFactory";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 import { useActiveGame } from "../utils/activeGame";
+import { publicClient } from "../utils/client";
 import { useFeeToken } from "../hooks/useFeeToken";
 import { Stage } from "../utils/gameTypes";
 import { shortAddress } from "../utils/tribes";
@@ -164,6 +165,7 @@ export const Lobbies: FC = () => {
 const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
   const { addAlert } = useAlerts();
   const { writeContractAsync, isPending } = useWriteContract();
+  const { address: creator } = useAccount();
   const feeToken = useFeeToken();
 
   const [name, setName] = useState("");
@@ -188,6 +190,10 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
   const prize = Math.max(0, fundingValue - needed);
 
   const create = async () => {
+    if (!creator) {
+      addAlert("Connect a wallet to start a lobby.", { type: "error" });
+      return;
+    }
     try {
       const decimals = feeToken.decimals ?? 6;
       const amount = BigInt(Math.round(fundingValue * 10 ** decimals));
@@ -210,17 +216,34 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
         ...shapeFor(players),
       };
 
-      // Two transactions, and the approval must be the factory rather than the game: the game does
-      // not have an address until `create` runs. Sent unconditionally rather than after an
-      // allowance read — one extra signature is cheaper than a stale allowance failing the create
-      // and leaving the creator to guess why.
-      setStep("approving");
-      await writeContractAsync({
+      // Two transactions, and the approval must be to the factory rather than the game: the game
+      // does not have an address until `create` runs.
+      //
+      // Skipped when the allowance already covers it, because the common way to arrive here is a
+      // second attempt after a failed create, and re-approving what is already approved is a
+      // signature that buys nothing.
+      const allowance = await publicClient.readContract({
         address: PUB_INTERFOLD_FEE_TOKEN_ADDRESS,
         abi: erc20Abi,
-        functionName: "approve",
-        args: [PUB_GAME_FACTORY_ADDRESS, amount],
+        functionName: "allowance",
+        args: [creator, PUB_GAME_FACTORY_ADDRESS],
       });
+
+      if (allowance < amount) {
+        setStep("approving");
+        const approval = await writeContractAsync({
+          address: PUB_INTERFOLD_FEE_TOKEN_ADDRESS,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [PUB_GAME_FACTORY_ADDRESS, amount],
+        });
+
+        // `writeContractAsync` resolves when the transaction is *sent*, not when it is mined. Going
+        // straight into `create` means the wallet estimates gas against a chain where the approval
+        // has not landed, so it fails with ERC20InsufficientAllowance before the create is ever
+        // submitted — and the creator sees a revert on a transaction they never signed.
+        await publicClient.waitForTransactionReceipt({ hash: approval });
+      }
 
       setStep("creating");
       await writeContractAsync({

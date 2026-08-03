@@ -25,6 +25,12 @@ export function describeGameError(error: unknown): string {
       if (mapped) return mapped;
       if (reverted.reason) return reverted.reason;
       if (name) return `The contract rejected this: ${name}.`;
+
+      // An error thrown by a contract we did not call directly — the fee token, reached through the
+      // factory — is not in the ABI viem was given, so it arrives as a bare selector and an
+      // instruction to go and look it up. These two are the ones a player can actually hit.
+      const selector = reverted.signature?.toLowerCase();
+      if (selector && selector in ERC20_ERRORS) return ERC20_ERRORS[selector];
     }
 
     return error.shortMessage || error.message;
@@ -32,6 +38,14 @@ export function describeGameError(error: unknown): string {
 
   return error instanceof Error ? error.message : "Unknown error";
 }
+
+/// OpenZeppelin 5's ERC20 errors, by selector. Matched this way because the token's ABI is not the
+/// one the failing call was made against, so viem has nothing to decode them with.
+const ERC20_ERRORS: Record<string, string> = {
+  "0xfb8f41b2":
+    "The token approval did not cover this. Approve the amount again and retry — if the first approval is still pending, wait for it to confirm.",
+  "0xe450d38c": "You do not hold enough of the fee token for this.",
+};
 
 function describe(name: string, args: readonly unknown[]): string | undefined {
   const n = (i: number) => Number(args[i] ?? 0);
