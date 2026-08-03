@@ -141,6 +141,7 @@ const CampaignBody: FC<{ cid: string }> = ({ cid }) => {
   const inline = cid.startsWith(INLINE_PREFIX);
   const [body, setBody] = useState<string | undefined>(inline ? cid.slice(INLINE_PREFIX.length) : undefined);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (inline) return;
@@ -150,20 +151,39 @@ const CampaignBody: FC<{ cid: string }> = ({ cid }) => {
       .then((data: { body?: string }) => {
         if (!cancelled) setBody(typeof data?.body === "string" ? data.body : undefined);
       })
-      .catch(() => {
+      .catch((e) => {
+        // Logged, because the two causes look identical on screen and need different fixes: no
+        // gateways configured at all, versus every configured gateway failing to serve the CID.
+        console.error(`campaign post ${cid}:`, e);
         if (!cancelled) setFailed(true);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [cid, inline]);
+  }, [cid, inline, attempt]);
 
   if (body) return <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--un-fg-2)" }}>{body}</p>;
 
   return (
     <p className="un-mono" style={{ fontSize: 12, wordBreak: "break-all", color: "var(--un-dim)" }}>
-      {failed ? `unreachable · ${cid}` : `loading · ${cid}`}
+      {failed ? "unreachable · " : "loading · "}
+      {cid}
+      {/* A fresh pin can take a moment to become servable, so the first read of a just-posted
+          message can fail on timing alone. Without this the post stays dead until a reload. */}
+      {failed && (
+        <button
+          type="button"
+          className="un-link"
+          style={{ marginLeft: 8 }}
+          onClick={() => {
+            setFailed(false);
+            setAttempt((a) => a + 1);
+          }}
+        >
+          retry
+        </button>
+      )}
     </p>
   );
 };

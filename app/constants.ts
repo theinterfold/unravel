@@ -41,7 +41,15 @@ export const PUB_CHAIN_ID = PUB_CHAIN.id;
 
 // Network and services
 export const PUB_WEB3_ENDPOINT = process.env.NEXT_PUBLIC_WEB3_ENDPOINT ?? "";
-export const PUB_IPFS_ENDPOINTS = process.env.NEXT_PUBLIC_IPFS_ENDPOINTS ?? "";
+/// Gateways to read campaign posts back through, tried in order.
+///
+/// Defaulted rather than left empty: unset means every post in the game renders as "unreachable ·
+/// ipfs://…", which looks like the pin failed when in fact nothing was ever asked for it. Pinata
+/// first because that is where this app pins, so it is the one gateway guaranteed to hold the
+/// content; the public ones behind it cover a Pinata outage.
+export const PUB_IPFS_ENDPOINTS =
+  process.env.NEXT_PUBLIC_IPFS_ENDPOINTS ??
+  "https://gateway.pinata.cloud/ipfs,https://dweb.link/ipfs,https://ipfs.io/ipfs";
 
 // Block the game was deployed at — the start of the campaign-event scan.
 export const PUB_DEPLOYMENT_BLOCK = Number(process.env.NEXT_PUBLIC_GAME_DEPLOYMENT_BLOCK ?? 0);

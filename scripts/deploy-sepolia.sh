@@ -451,6 +451,9 @@ NEXT_PUBLIC_CRISP_SERVER_URL=$CRISP_SERVER
 
 NEXT_PUBLIC_CHAIN_NAME=sepolia
 NEXT_PUBLIC_WEB3_ENDPOINT=$RPC
+# Where campaign posts are read back from. Without these every post in the game renders as
+# "unreachable", which looks like the pin failed rather than like nothing was ever asked for it.
+NEXT_PUBLIC_IPFS_ENDPOINTS=https://gateway.pinata.cloud/ipfs,https://dweb.link/ipfs,https://ipfs.io/ipfs
 ${PINATA_JWT:+PINATA_JWT=$PINATA_JWT
 }NEXT_PUBLIC_SECONDS_PER_BLOCK=12
 EOF

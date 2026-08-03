@@ -4,7 +4,8 @@ import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 
-const IPFS_FETCH_TIMEOUT = 5000; // 1 second
+/// Per-gateway, not total: a slow first gateway must not eat the whole budget for the rest.
+const IPFS_FETCH_TIMEOUT = 5000;
 const UPLOAD_FILE_NAME = `${PUB_APP_NAME.toLowerCase().trim().replaceAll(" ", "-")}.json`;
 
 export function fetchIpfsAsJson(ipfsUri: string) {
@@ -66,17 +67,26 @@ async function fetchRawIpfs(ipfsUri: string): Promise<Response> {
   for (const uriPrefix of uriPrefixes) {
     const controller = new AbortController();
     const abortId = setTimeout(() => controller.abort(), IPFS_FETCH_TIMEOUT);
-    const response = await fetch(`${uriPrefix}/${cid}`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    clearTimeout(abortId);
-    if (!response.ok) continue;
+    try {
+      const response = await fetch(`${uriPrefix}/${cid}`, {
+        method: "GET",
+        signal: controller.signal,
+      });
+      if (!response.ok) continue;
 
-    return response; // .json(), .text(), .blob(), etc.
+      return response; // .json(), .text(), .blob(), etc.
+    } catch {
+      // The two ways a gateway actually fails — the abort above firing, and a network or CORS
+      // rejection — both throw rather than returning a non-ok response. Uncaught, the first dead
+      // gateway ended the loop and the remaining ones were never tried, which made a list of
+      // fallbacks behave exactly like a single endpoint.
+      continue;
+    } finally {
+      clearTimeout(abortId);
+    }
   }
 
-  throw new Error("Could not connect to any of the IPFS endpoints");
+  throw new Error(`Could not fetch ${cid} from any of ${uriPrefixes.length} IPFS gateways`);
 }
 
 function resolvePath(uri: string) {

@@ -341,6 +341,16 @@
   border-color: var(--un-sage);
   filter: none;
 }
+/* An action that has to sit inside a line of text, where a button would break the flow. */
+.un-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--un-pistachio);
+  text-decoration: underline;
+  cursor: pointer;
+}
 .un-btn-danger {
   background: var(--un-condemned);
   color: #fff;
