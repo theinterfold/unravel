@@ -1,6 +1,7 @@
 import type { FC, ReactNode } from "react";
 import type { Address } from "viem";
-import { shortAddress, sameAddress, tribe } from "../utils/tribes";
+import { sameAddress, tribe } from "../utils/tribes";
+import { useNames, displayName } from "../hooks/useNames";
 
 interface RosterProps {
   alive: Address[];
@@ -27,6 +28,8 @@ interface RosterProps {
 /// A player is a tribe bar, an address and a state. No avatars and no generated art — the address is
 /// the face, and the bar runs full height so a roster reads like pieces on a board.
 export const Roster: FC<RosterProps> = ({ alive, graveyard, teamOf, self, condemnedTeam, merged, openSeats = 0 }) => {
+  const names = useNames([...alive, ...graveyard]);
+
   const groups = new Map<number, Address[]>();
   for (const player of alive) {
     const team = merged ? 0 : (teamOf[player.toLowerCase()] ?? 0);
@@ -61,6 +64,7 @@ export const Roster: FC<RosterProps> = ({ alive, graveyard, teamOf, self, condem
                 <Piece
                   key={player}
                   player={player}
+                  label={displayName(player, names)}
                   team={team}
                   you={sameAddress(player, self)}
                   onTheBlock={team !== 0 && team === condemnedTeam}
@@ -94,6 +98,7 @@ export const Roster: FC<RosterProps> = ({ alive, graveyard, teamOf, self, condem
               <Piece
                 key={player}
                 player={player}
+                label={displayName(player, names)}
                 team={teamOf[player.toLowerCase()] ?? 0}
                 you={sameAddress(player, self)}
                 out={i + 1}
@@ -111,11 +116,13 @@ export const Roster: FC<RosterProps> = ({ alive, graveyard, teamOf, self, condem
 
 const Piece: FC<{
   player: Address;
+  /// The player's chosen name, or their shortened address. Never blank.
+  label: string;
   team: number;
   you?: boolean;
   out?: number;
   onTheBlock?: boolean;
-}> = ({ player, team, you, out, onTheBlock }) => {
+}> = ({ player, label, team, you, out, onTheBlock }) => {
   const t = tribe(team);
   const eliminated = out !== undefined;
 
@@ -134,7 +141,9 @@ const Piece: FC<{
         aria-hidden="true"
       />
       <div className="un-piece-body">
-        <span className="un-piece-addr">{shortAddress(player)}</span>
+        <span className="un-piece-addr" title={player}>
+          {label}
+        </span>
         {t && (
           <span className="un-piece-tribe" style={{ color: eliminated ? "var(--un-dim-2)" : t.color }}>
             {t.name}

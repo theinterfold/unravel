@@ -1567,3 +1567,40 @@ a.un-cipher-tx:hover {
   outline: none;
   border-color: var(--un-pistachio);
 }
+
+/* ─── The record ─────────────────────────────────────────────────────────────────────────────── */
+
+.un-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.un-timeline-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 12px;
+  background: var(--un-ink);
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--un-fg-2);
+  flex-wrap: wrap;
+}
+.un-timeline-round {
+  font-family: var(--un-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--un-dim-2);
+  flex: 0 0 auto;
+}
+.un-timeline-text {
+  min-width: 0;
+}
+.un-timeline-counts {
+  margin-left: auto;
+  font-family: var(--un-mono);
+  font-size: 10.5px;
+  color: var(--un-dim);
+}

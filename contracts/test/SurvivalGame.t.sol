@@ -797,18 +797,22 @@ contract SurvivalGameTest is Test {
 
     // ─── Campaign and liveness ───────────────────────────────────────────────────────────────
 
-    function test_post_onlyVotersDuringCampaign() public {
+    /// @dev Anyone who never joined stays silent: posts are attributable, and attribution only means
+    ///      something when the names on it are in the game.
+    function test_post_rejectedFromNonPlayers() public {
         _start();
         vm.prank(players[0]);
         game.post("QmCid");
 
         vm.prank(address(0xDEAD));
-        vm.expectRevert(SurvivalGame.NotAVoter.selector);
+        vm.expectRevert(SurvivalGame.NotAPlayer.selector);
         game.post("QmCid");
     }
 
-    /// @dev In a council round the electorate narrows, so who may post narrows with it.
-    function test_post_restrictedToTheCouncilTeam() public {
+    /// @dev A council round narrows the *electorate*, and used to narrow speech with it — which left
+    ///      everyone not on the condemned tribe unable to say anything during the round their own
+    ///      vote had caused. Speech is no longer the franchise.
+    function test_post_notRestrictedToTheCouncilTeam() public {
         _start();
         _settleOn(1);
         game.openRound();
@@ -818,15 +822,35 @@ contract SurvivalGameTest is Test {
         game.post("QmInside");
 
         address outsider;
-        for (uint256 i; i < players.length; ++i) {
-            if (game.teamOf(players[i]) != game.teamOf(voters[0])) {
-                outsider = players[i];
+        address[] memory living = game.alivePlayers();
+        for (uint256 i; i < living.length; ++i) {
+            if (game.teamOf(living[i]) != game.teamOf(voters[0])) {
+                outsider = living[i];
                 break;
             }
         }
+        assertTrue(outsider != address(0), "test needs a survivor outside the condemned tribe");
+
         vm.prank(outsider);
-        vm.expectRevert(SurvivalGame.NotAVoter.selector);
         game.post("QmOutside");
+    }
+
+    /// @dev The eliminated keep their voice. They are the jury, and a silent jury is a bored one —
+    ///      they also have the strongest opinions about whoever put them there.
+    function test_post_allowedByTheEliminated() public {
+        _start();
+        _settleOn(1);
+        game.openRound();
+
+        // Settle the council round so somebody is actually out.
+        _settleOn(0);
+        game.openRound();
+
+        address[] memory jurors = game.jurors();
+        assertEq(jurors.length, 1, "one player is out");
+
+        vm.prank(jurors[0]);
+        game.post("QmFromTheGrave");
     }
 
     function test_checkIn_recordsLiveness() public {

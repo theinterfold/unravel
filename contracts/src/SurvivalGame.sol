@@ -212,6 +212,7 @@ contract SurvivalGame is Ownable {
     error InsufficientPot(uint256 needed, uint256 available);
     error NotInCampaign();
     error NotAVoter();
+    error NotAPlayer();
     error NotAlive();
     error TallyNotDue(uint64 until);
     error BallotStillOpen(uint64 until);
@@ -480,10 +481,20 @@ contract SurvivalGame is Ownable {
     // ─── Campaign ────────────────────────────────────────────────────────────────────────────
 
     /// @notice Publishes a campaign message (an IPFS CID) for the current round.
+    ///
+    /// @dev Speech is not the franchise. This used to require `_isVoter`, which tied the two
+    ///      together and switched the public half of the game off for most people most of the time:
+    ///      in a council round only the three condemned players could speak, so the rest of the game
+    ///      watched its most dramatic round in silence, and the eliminated — who have the strongest
+    ///      opinions about who knifed them — could never speak at all.
+    ///
+    ///      Anyone who ever joined may post. Who may *vote* is unchanged and still narrows to the
+    ///      round's own electorate; the frontend separates the jury's posts from the living's, so
+    ///      the dead can heckle without appearing to deliberate.
     function post(string calldata cid) external {
         uint256 roundId = _currentRoundId();
         if (block.timestamp >= rounds[roundId].ballotOpensAt) revert NotInCampaign();
-        if (!_isVoter(roundId, msg.sender)) revert NotAVoter();
+        if (!isPlayer[msg.sender]) revert NotAPlayer();
         emit Posted(roundId, msg.sender, cid);
     }
 

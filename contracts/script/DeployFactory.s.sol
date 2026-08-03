@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {GameFactory} from "../src/GameFactory.sol";
 import {GameDeployer} from "../src/GameDeployer.sol";
+import {NameRegistry} from "../src/NameRegistry.sol";
 import {ICrispVotingPlugin} from "../src/interfaces/ICrispVotingPlugin.sol";
 
 /// @notice Deploys the lobby factory.
@@ -33,8 +34,12 @@ contract DeployFactory is Script {
             IERC20(vm.envAddress("FEE_TOKEN_ADDRESS"))
         );
 
+        // Shared by every lobby, and read by nothing on chain: a name is display only.
+        NameRegistry names = new NameRegistry();
+
         vm.stopBroadcast();
 
+        console2.log("NAMES", address(names));
         console2.log("DEPLOYER", address(deployer));
         console2.log("FACTORY", address(factory));
     }

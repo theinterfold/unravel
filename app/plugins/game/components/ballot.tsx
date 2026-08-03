@@ -3,7 +3,8 @@ import type { Address } from "viem";
 import { useCastBallot } from "../hooks/useCastBallot";
 import { useE3State } from "../hooks/useE3State";
 import { RoundKind, votesOnTeams, type Round } from "../utils/gameTypes";
-import { shortAddress, sameAddress, tribe } from "../utils/tribes";
+import { sameAddress, tribe } from "../utils/tribes";
+import { useNames, displayName } from "../hooks/useNames";
 import { Sealing } from "./sealing";
 
 interface BallotProps {
@@ -48,6 +49,7 @@ export const Ballot: FC<BallotProps> = ({ round, canVote, self, onSealed }) => {
   const [revising, setRevising] = useState(false);
   const { castBallot, castMask, isLoading, votingStep, stepMessage, error, txHash, ciphertext } = useCastBallot();
   const { e3 } = useE3State(round.e3Id);
+  const names = useNames(round.candidates);
 
   // A vote is encrypted under the committee's key, so there is nothing to cast until it exists. The
   // window opening on a timer says nothing about whether the committee is ready, and letting someone
@@ -115,7 +117,7 @@ export const Ballot: FC<BallotProps> = ({ round, canVote, self, onSealed }) => {
           : round.candidates.map((candidate, index) => (
               <Option
                 key={candidate}
-                name={shortAddress(candidate)}
+                name={displayName(candidate, names)}
                 note={sameAddress(candidate, self) ? "THAT'S YOU" : undefined}
                 selected={selected === index}
                 disabled={!ready}

@@ -7,6 +7,8 @@ import type { ChainName } from "./utils/chains";
 export const PUB_GAME_ADDRESS = (process.env.NEXT_PUBLIC_GAME_ADDRESS ?? "") as Address;
 /// The lobby factory. Optional: without it the app shows the single configured game and no browser.
 export const PUB_GAME_FACTORY_ADDRESS = (process.env.NEXT_PUBLIC_GAME_FACTORY_ADDRESS ?? "") as Address;
+/// Self-set display names, shared across lobbies. Optional: without it players are addresses.
+export const PUB_NAME_REGISTRY_ADDRESS = (process.env.NEXT_PUBLIC_NAME_REGISTRY_ADDRESS ?? "") as Address;
 export const PUB_LIFE_TOKEN_ADDRESS = (process.env.NEXT_PUBLIC_LIFE_TOKEN_ADDRESS ?? "") as Address;
 export const PUB_JURY_TOKEN_ADDRESS = (process.env.NEXT_PUBLIC_JURY_TOKEN_ADDRESS ?? "") as Address;
 // Paid to join, and used to settle Interfold E3 fees each round.

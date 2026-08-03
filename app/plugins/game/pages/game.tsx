@@ -17,6 +17,9 @@ import { Reveal } from "../components/reveal";
 import { CheckIn, CheckInTakeover, shouldTakeOver } from "../components/checkIn";
 import { Ciphertexts } from "../components/ciphertexts";
 import { Lobbies } from "../components/lobbies";
+import { History } from "../components/history";
+import { useNames, useSetName } from "../hooks/useNames";
+import { useNotifications, useAnnounce } from "../hooks/useNotifications";
 import { Finalists } from "../components/finalists";
 import { MAX_TEAM_SIZE, RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
@@ -42,6 +45,8 @@ export default function GamePage() {
   // Read only while a round is open: once settled, the events are the better source.
   const pendingTally = useLiveTally(round?.proposalId, !!round && !round.settled);
   const { sealed, markSealed } = useSealedLocally(round?.e3Id);
+  const names = useNames(allPlayers);
+  const notifications = useNotifications();
   const feeToken = useFeeToken();
 
   // A game that cannot be read is not a game that is loading. Collapsing the two leaves a wrong
@@ -94,6 +99,14 @@ export default function GamePage() {
   const owes = owesCheckIn || owesBallot;
 
   const secondsLeft = round && inBallot ? round.ballotClosesAt - now : 0n;
+
+  // Only the two moments a player loses the game by missing, and only when they apply to them.
+  useAnnounce(canVote && !sealed ? `ballot-${round?.id}` : undefined, () =>
+    notifications.notify("The ballot is open", "You have a vote to cast this round.")
+  );
+  useAnnounce(owesCheckIn && round ? `checkin-${round.id}` : undefined, () =>
+    notifications.notify("Check in", "Miss too many and you are out — one tap, no proof.")
+  );
   // Mirrors the contract: settling waits on the tally existing, not on a clock. The only clock
   // condition left is that the ballot has closed — nobody settles a round people can still vote in.
   const settleDue = !!round && !round.settled && now >= round.ballotClosesAt && !!pendingTally;
@@ -161,6 +174,8 @@ export default function GamePage() {
         )}
 
         <Lobbies />
+
+        <PlayerSettings notifications={notifications} />
 
         {game.stage === Stage.Cancelled && <CancelledLobby self={address} feeToken={feeToken} />}
 
@@ -283,6 +298,8 @@ export default function GamePage() {
           openSeats={game.stage === Stage.Lobby ? Math.max(0, game.config.minPlayers - game.alive.length) : 0}
         />
 
+        {game.roundCount > 0 && <History roundCount={game.roundCount} players={allPlayers} />}
+
         {round && roundId !== undefined && (
           <Campaign
             round={roundId}
@@ -329,6 +346,65 @@ export default function GamePage() {
     </main>
   );
 }
+
+/// Name and notifications: the two things a player sets once and then forgets about.
+const PlayerSettings = ({
+  notifications,
+}: {
+  notifications: ReturnType<typeof useNotifications>;
+}) => {
+  const { setName, isPending, configured } = useSetName();
+  const { addAlert } = useAlerts();
+  const [draft, setDraft] = useState("");
+
+  const save = async () => {
+    try {
+      await setName(draft.trim());
+      addAlert("Name set.", { type: "success", timeout: 3000 });
+      setDraft("");
+    } catch (e) {
+      console.error("setName:", e);
+      addAlert(describeGameError(e), { type: "error" });
+    }
+  };
+
+  if (!configured && notifications.permission === "unsupported") return null;
+
+  return (
+    <section className="un-panel un-row" style={{ gap: 12 }}>
+      {configured && (
+        <>
+          <input
+            className="un-input"
+            style={{ maxWidth: 220 }}
+            value={draft}
+            maxLength={24}
+            placeholder="Set a display name"
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <button
+            type="button"
+            className="un-btn un-btn-ghost un-btn-sm"
+            disabled={isPending || !draft.trim()}
+            onClick={() => void save()}
+          >
+            {isPending ? "Saving…" : "Save"}
+          </button>
+        </>
+      )}
+
+      {notifications.permission === "default" && (
+        <button type="button" className="un-btn un-btn-ghost un-btn-sm" onClick={() => void notifications.request()}>
+          Notify me when it is my turn
+        </button>
+      )}
+      {notifications.permission === "granted" && <span className="un-fine">Notifications on.</span>}
+      {notifications.permission === "denied" && (
+        <span className="un-fine">Notifications blocked — the clock is the only warning.</span>
+      )}
+    </section>
+  );
+};
 
 /// A lobby that never filled. The entry fees are sitting in the contract waiting to be claimed, so
 /// the only thing this screen does is say so and hand them back.

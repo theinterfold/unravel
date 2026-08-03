@@ -2,6 +2,7 @@ import type { FC, ReactNode } from "react";
 import type { Address } from "viem";
 import { RoundKind, votesOnTeams, type Round } from "../utils/gameTypes";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
+import { useNames, displayName } from "../hooks/useNames";
 import type { TallyOutcome } from "../hooks/useTally";
 
 interface RevealProps {
@@ -90,10 +91,11 @@ const Counts: FC<{
   heading: ReactNode;
   footer?: string;
 }> = ({ round, counts, self, label, heading, footer }) => {
+  const names = useNames(round.candidates);
   const total = counts.reduce((a, b) => a + b, 0n);
   const max = counts.reduce((a, b) => (b > a ? b : a), 0n);
   const leaders = counts.filter((c) => c === max && c > 0n).length;
-  const names = optionNames(round);
+  const optionLabels = optionNames(round, names);
 
   return (
     <section className="un-panel un-stack">
@@ -113,7 +115,7 @@ const Counts: FC<{
             >
               <div className="un-tally-head">
                 <span className="un-tally-name" style={optionColor(round, i)}>
-                  {names[i] ?? `OPTION ${i + 1}`}
+                  {optionLabels[i] ?? `OPTION ${i + 1}`}
                   {sameAddress(round.candidates[i], self) && !votesOnTeams(round) ? " · YOU" : ""}
                 </span>
                 <span className="un-tally-count">{count.toString()}</span>
@@ -165,10 +167,10 @@ function verdict(round: Round, outcome: TallyOutcome) {
 
 /// Option labels, straight from the round's own arrays — the same arrays the ciphertext indexes
 /// into, so a label can never drift from the slot it describes.
-function optionNames(round: Round): string[] {
+function optionNames(round: Round, names: Record<string, string>): string[] {
   return votesOnTeams(round)
     ? round.candidateTeams.map((t) => tribe(t)?.name ?? `TEAM ${t}`)
-    : round.candidates.map((c) => shortAddress(c));
+    : round.candidates.map((c) => displayName(c, names));
 }
 
 function optionColor(round: Round, index: number) {

@@ -3,7 +3,8 @@ import type { Address } from "viem";
 import { uploadToPinata, fetchIpfsAsJson } from "@/utils/ipfs";
 import { useAlerts } from "@/context/Alerts";
 import { useCampaignFeed, useCampaignActions } from "../hooks/useCampaign";
-import { shortAddress, sameAddress } from "../utils/tribes";
+import { sameAddress } from "../utils/tribes";
+import { useNames, displayName } from "../hooks/useNames";
 import { describeGameError } from "../utils/errors";
 
 interface CampaignProps {
@@ -24,6 +25,7 @@ export const Campaign: FC<CampaignProps> = ({ round, canPost, self, closed }) =>
   const { post, isPending } = useCampaignActions();
   const { addAlert } = useAlerts();
   const [draft, setDraft] = useState("");
+  const names = useNames(posts.map((p) => p.player));
 
   const submit = async () => {
     const body = draft.trim();
@@ -104,7 +106,7 @@ export const Campaign: FC<CampaignProps> = ({ round, canPost, self, closed }) =>
           <article key={`${entry.player}-${entry.blockNumber}-${entry.cid}`} className="un-panel-ink">
             <div className="un-row" style={{ gap: 10, marginBottom: 8 }}>
               <span className="un-mono" style={{ color: "var(--un-fg-2)", fontSize: 13 }}>
-                {shortAddress(entry.player)}
+                {displayName(entry.player, names)}
               </span>
               {sameAddress(entry.player, self) && <span className="un-tag un-tag-you">YOU</span>}
               <span className="un-mono" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--un-dim-2)" }}>
