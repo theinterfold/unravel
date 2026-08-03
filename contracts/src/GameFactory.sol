@@ -4,6 +4,7 @@ pragma solidity 0.8.29;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {SurvivalGame} from "./SurvivalGame.sol";
+import {GameDeployer} from "./GameDeployer.sol";
 import {RosterToken} from "./RosterToken.sol";
 import {ICrispVotingPlugin} from "./interfaces/ICrispVotingPlugin.sol";
 
@@ -22,6 +23,11 @@ import {ICrispVotingPlugin} from "./interfaces/ICrispVotingPlugin.sol";
 ///      game, so two games cannot hold the same pair; and a shared badge would also mix one lobby's
 ///      players into another's balances.
 contract GameFactory {
+    /// @notice Holds the game's creation code, which does not fit in here alongside the badges'.
+    /// @dev See `GameDeployer`: EIP-170 applies per contract, so the three creation codes are split
+    ///      across two rather than crammed into one.
+    GameDeployer public immutable deployer;
+
     /// @notice The voting plugin every lobby routes its rounds through.
     ICrispVotingPlugin public immutable plugin;
 
@@ -44,8 +50,12 @@ contract GameFactory {
 
     error ZeroAddress();
 
-    constructor(ICrispVotingPlugin plugin_, IERC20 feeToken_) {
-        if (address(plugin_) == address(0) || address(feeToken_) == address(0)) revert ZeroAddress();
+    constructor(GameDeployer deployer_, ICrispVotingPlugin plugin_, IERC20 feeToken_) {
+        if (
+            address(deployer_) == address(0) || address(plugin_) == address(0)
+                || address(feeToken_) == address(0)
+        ) revert ZeroAddress();
+        deployer = deployer_;
         plugin = plugin_;
         feeToken = feeToken_;
     }
@@ -72,7 +82,7 @@ contract GameFactory {
         RosterToken life = new RosterToken(string.concat(name, " Life"), "LIFE", address(this));
         RosterToken jury = new RosterToken(string.concat(name, " Jury"), "JURY", address(this));
 
-        game = new SurvivalGame(
+        game = deployer.deploy(
             SurvivalGame.InitParams({
                 owner: msg.sender,
                 plugin: plugin,

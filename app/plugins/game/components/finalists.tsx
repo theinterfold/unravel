@@ -1,7 +1,8 @@
 import { useEffect, useState, type FC } from "react";
 import { parseAbiItem, type Address } from "viem";
 import { useReadContracts } from "wagmi";
-import { PUB_GAME_ADDRESS, PUB_DEPLOYMENT_BLOCK } from "@/constants";
+import { PUB_DEPLOYMENT_BLOCK } from "@/constants";
+import { useGameAddress } from "../utils/activeGame";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 import { publicClient } from "../utils/client";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
@@ -25,11 +26,12 @@ const POSTED = parseAbiItem("event Posted(uint256 indexed round, address indexed
 /// yet resolve. An invented dossier would be worse than a short one — the jury is about to spend
 /// real money on it.
 export const Finalists: FC<FinalistsProps> = ({ finalists, teamOf, jurors, roundCount, self }) => {
-  const posts = usePostCounts(finalists);
+  const gameAddress = useGameAddress();
+  const posts = usePostCounts(finalists, gameAddress);
 
   const { data } = useReadContracts({
     contracts: finalists.map((p) => ({
-      address: PUB_GAME_ADDRESS,
+      address: gameAddress,
       abi: SurvivalGameAbi,
       functionName: "lastCheckIn" as const,
       args: [p],
@@ -106,7 +108,7 @@ const Fact: FC<{ label: string; value: number; alarm?: boolean; last?: boolean }
 );
 
 /// How much each finalist said in public, across the whole game.
-function usePostCounts(players: Address[]): Record<string, number> {
+function usePostCounts(players: Address[], gameAddress: Address): Record<string, number> {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const key = players.join(",");
 
@@ -117,7 +119,7 @@ function usePostCounts(players: Address[]): Record<string, number> {
     const load = async () => {
       try {
         const logs = await publicClient.getLogs({
-          address: PUB_GAME_ADDRESS,
+          address: gameAddress,
           event: POSTED,
           fromBlock: BigInt(PUB_DEPLOYMENT_BLOCK),
           toBlock: "latest",
@@ -140,7 +142,7 @@ function usePostCounts(players: Address[]): Record<string, number> {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, gameAddress]);
 
   return counts;
 }

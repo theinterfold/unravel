@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {GameFactory} from "../src/GameFactory.sol";
+import {GameDeployer} from "../src/GameDeployer.sol";
 import {SurvivalGame} from "../src/SurvivalGame.sol";
 import {RosterToken} from "../src/RosterToken.sol";
 import {ICrispVotingPlugin} from "../src/interfaces/ICrispVotingPlugin.sol";
@@ -29,7 +30,8 @@ contract GameFactoryTest is Test {
     function setUp() public {
         fee = new MockFeeToken();
         plugin = new MockPlugin(IERC20(address(fee)), FEE);
-        factory = new GameFactory(ICrispVotingPlugin(address(plugin)), IERC20(address(fee)));
+        factory =
+            new GameFactory(new GameDeployer(), ICrispVotingPlugin(address(plugin)), IERC20(address(fee)));
 
         for (uint256 i; i < 8; ++i) {
             players.push(address(uint160(0x2000 + i)));

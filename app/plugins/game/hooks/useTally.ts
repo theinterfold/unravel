@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { parseAbiItem, type Address } from "viem";
-import { PUB_GAME_ADDRESS, PUB_DEPLOYMENT_BLOCK } from "@/constants";
+import { PUB_DEPLOYMENT_BLOCK } from "@/constants";
+import { useGameAddress } from "../utils/activeGame";
 import { publicClient } from "../utils/client";
 
 export type TallyOutcome =
@@ -28,6 +29,7 @@ const VOID = parseAbiItem("event RoundVoid(uint256 indexed round, uint256 indexe
 const ABORTED = parseAbiItem("event RoundAborted(uint256 indexed round, uint256 indexed e3Id)");
 
 export function useTally(round: number | undefined, settled: boolean, pollMs = 15_000) {
+  const gameAddress = useGameAddress();
   const [outcome, setOutcome] = useState<TallyOutcome | undefined>();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -41,7 +43,7 @@ export function useTally(round: number | undefined, settled: boolean, pollMs = 1
       setIsLoading(true);
       try {
         const scope = {
-          address: PUB_GAME_ADDRESS,
+          address: gameAddress,
           args: { round: BigInt(round) },
           fromBlock: BigInt(PUB_DEPLOYMENT_BLOCK),
           toBlock: "latest" as const,
@@ -108,6 +110,7 @@ const WINNER = parseAbiItem("event WinnerDeclared(address indexed player, uint25
 /// an endgame screen renders, the contract's own `pot` reads 0. The event is the only place the
 /// number survives.
 export function usePrize(ended: boolean) {
+  const gameAddress = useGameAddress();
   const [prize, setPrize] = useState<bigint | undefined>();
 
   useEffect(() => {
@@ -117,7 +120,7 @@ export function usePrize(ended: boolean) {
     const load = async () => {
       try {
         const logs = await publicClient.getLogs({
-          address: PUB_GAME_ADDRESS,
+          address: gameAddress,
           event: WINNER,
           fromBlock: BigInt(PUB_DEPLOYMENT_BLOCK),
           toBlock: "latest",

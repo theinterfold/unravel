@@ -16,6 +16,7 @@ import { RoundStatus } from "../components/roundStatus";
 import { Reveal } from "../components/reveal";
 import { CheckIn, CheckInTakeover, shouldTakeOver } from "../components/checkIn";
 import { Ciphertexts } from "../components/ciphertexts";
+import { Lobbies } from "../components/lobbies";
 import { Finalists } from "../components/finalists";
 import { MAX_TEAM_SIZE, RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
@@ -158,6 +159,8 @@ export default function GamePage() {
             </div>
           </section>
         )}
+
+        <Lobbies />
 
         {game.stage === Stage.Cancelled && <CancelledLobby self={address} feeToken={feeToken} />}
 

@@ -1,6 +1,6 @@
 import { useReadContract, useWriteContract } from "wagmi";
 import type { Address } from "viem";
-import { PUB_GAME_ADDRESS } from "@/constants";
+import { useGameAddress } from "../utils/activeGame";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 
 export type CheckInState = {
@@ -38,8 +38,9 @@ export function useCheckIn(
   limit: number,
   pollMs = 15_000
 ): CheckInState {
+  const gameAddress = useGameAddress();
   const { data, refetch } = useReadContract({
-    address: PUB_GAME_ADDRESS,
+    address: gameAddress,
     abi: SurvivalGameAbi,
     functionName: "lastCheckIn",
     args: player ? [player] : undefined,
@@ -63,7 +64,7 @@ export function useCheckIn(
     refetch: () => void refetch(),
     checkIn: async () => {
       const hash = await writeContractAsync({
-        address: PUB_GAME_ADDRESS,
+        address: gameAddress,
         abi: SurvivalGameAbi,
         functionName: "checkIn",
         args: [],

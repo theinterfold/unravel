@@ -6,6 +6,7 @@ import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {GameFactory} from "../src/GameFactory.sol";
+import {GameDeployer} from "../src/GameDeployer.sol";
 import {ICrispVotingPlugin} from "../src/interfaces/ICrispVotingPlugin.sol";
 
 /// @notice Deploys the lobby factory.
@@ -22,13 +23,19 @@ contract DeployFactory is Script {
     function run() external {
         vm.startBroadcast();
 
+        // Two contracts because EIP-170 applies per contract: the game's creation code and the
+        // badges' do not fit in one factory. Creating a lobby is still a single transaction.
+        GameDeployer deployer = new GameDeployer();
+
         GameFactory factory = new GameFactory(
+            deployer,
             ICrispVotingPlugin(vm.envAddress("CRISP_VOTING_PLUGIN_ADDRESS")),
             IERC20(vm.envAddress("FEE_TOKEN_ADDRESS"))
         );
 
         vm.stopBroadcast();
 
+        console2.log("DEPLOYER", address(deployer));
         console2.log("FACTORY", address(factory));
     }
 }

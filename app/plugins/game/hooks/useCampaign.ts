@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useWriteContract } from "wagmi";
 import { parseAbiItem, type Address } from "viem";
-import { PUB_GAME_ADDRESS, PUB_DEPLOYMENT_BLOCK } from "@/constants";
+import { PUB_DEPLOYMENT_BLOCK } from "@/constants";
+import { useGameAddress } from "../utils/activeGame";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 import { publicClient } from "../utils/client";
 
@@ -20,6 +21,7 @@ const POSTED_EVENT = parseAbiItem("event Posted(uint256 indexed round, address i
 /// is the part that matters. What a player said, and that they are on record as having said it, is
 /// the counterweight to a ballot nobody can trace.
 export function useCampaignFeed(round: number | undefined, pollMs = 15_000) {
+  const gameAddress = useGameAddress();
   const [posts, setPosts] = useState<CampaignPost[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -31,7 +33,7 @@ export function useCampaignFeed(round: number | undefined, pollMs = 15_000) {
       setIsLoading(true);
       try {
         const logs = await publicClient.getLogs({
-          address: PUB_GAME_ADDRESS,
+          address: gameAddress,
           event: POSTED_EVENT,
           args: { round: BigInt(round) },
           fromBlock: BigInt(PUB_DEPLOYMENT_BLOCK),
@@ -68,11 +70,12 @@ export function useCampaignFeed(round: number | undefined, pollMs = 15_000) {
 
 /// Publishing a campaign post, and the public liveness check-in.
 export function useCampaignActions() {
+  const gameAddress = useGameAddress();
   const { writeContractAsync, isPending } = useWriteContract();
 
   const post = (cid: string) =>
     writeContractAsync({
-      address: PUB_GAME_ADDRESS,
+      address: gameAddress,
       abi: SurvivalGameAbi,
       functionName: "post",
       args: [cid],
@@ -82,7 +85,7 @@ export function useCampaignActions() {
   // meaningless, so nobody — including the contract — can tell who actually voted.
   const checkIn = () =>
     writeContractAsync({
-      address: PUB_GAME_ADDRESS,
+      address: gameAddress,
       abi: SurvivalGameAbi,
       functionName: "checkIn",
       args: [],

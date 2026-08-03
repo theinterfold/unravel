@@ -1528,3 +1528,42 @@ a.un-cipher-tx:hover {
   line-height: 1.65;
   color: var(--un-fg-2);
 }
+
+/* ─── Lobby browser ──────────────────────────────────────────────────────────────────────────── */
+
+.un-lobby-meta {
+  margin-left: auto;
+  font-family: var(--un-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--un-dim);
+}
+
+.un-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 140px;
+}
+.un-field-label {
+  font-family: var(--un-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--un-dim);
+}
+.un-input {
+  font-family: var(--un-mono);
+  font-size: 14px;
+  background: var(--un-panel);
+  color: var(--un-fg);
+  border: 1px solid var(--un-line-2);
+  border-radius: var(--un-r-card);
+  padding: 11px 12px;
+  width: 100%;
+}
+.un-input:focus {
+  outline: none;
+  border-color: var(--un-pistachio);
+}

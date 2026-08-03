@@ -1,17 +1,22 @@
 import { useReadContracts, useReadContract } from "wagmi";
-import { PUB_GAME_ADDRESS } from "@/constants";
+import { useGameAddress } from "../utils/activeGame";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
 import { Stage, ZERO_ADDRESS, type RoundKind } from "../utils/gameTypes";
 import type { GameConfig, GameState, Round } from "../utils/gameTypes";
 import type { Address } from "viem";
 
-const gameContract = { address: PUB_GAME_ADDRESS, abi: SurvivalGameAbi } as const;
+/// Built per call rather than once at module scope, because the address is now state: a module-level
+/// constant would freeze whichever lobby was configured at build time.
+function gameContractFor(address: Address) {
+  return { address, abi: SurvivalGameAbi } as const;
+}
 
 /// Reads the whole game state in one multicall.
 ///
 /// Refetches on an interval because rounds advance by wall clock, not by transactions — there is
 /// no event to wait for when a campaign window rolls over into a ballot window.
 export function useGame(pollMs = 10_000) {
+  const gameContract = gameContractFor(useGameAddress());
   const { data, isLoading, error, refetch } = useReadContracts({
     contracts: [
       { ...gameContract, functionName: "stage" },
@@ -42,6 +47,7 @@ export function useGame(pollMs = 10_000) {
 
 /// Reads a single round, including the candidate list a ballot is cast against.
 export function useRound(roundId: number | undefined, pollMs = 10_000) {
+  const gameContract = gameContractFor(useGameAddress());
   const enabled = roundId !== undefined && roundId >= 0;
 
   const { data, isLoading, error, refetch } = useReadContracts({
@@ -74,6 +80,7 @@ export function useRound(roundId: number | undefined, pollMs = 10_000) {
 /// there is no bulk accessor, and inventing one on-chain to save a few RPC calls is the wrong
 /// trade for a roster this size.
 export function useTeams(players: Address[], pollMs = 30_000) {
+  const gameContract = gameContractFor(useGameAddress());
   const { data } = useReadContracts({
     contracts: players.map((p) => ({ ...gameContract, functionName: "teamOf" as const, args: [p] })),
     query: { enabled: players.length > 0, refetchInterval: pollMs },
@@ -90,6 +97,7 @@ export function useTeams(players: Address[], pollMs = 30_000) {
 
 /// The index of the round currently in play, or undefined before the game starts.
 export function useCurrentRoundId(pollMs = 10_000) {
+  const gameContract = gameContractFor(useGameAddress());
   const { data } = useReadContract({
     ...gameContract,
     functionName: "roundCount",

@@ -15,7 +15,7 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 
 forge build --root "$ROOT/contracts" >/dev/null
 
-for pair in "SurvivalGame:SurvivalGameAbi" "RosterToken:RosterTokenAbi" "PublicImmunityVote:PublicImmunityVoteAbi"; do
+for pair in "SurvivalGame:SurvivalGameAbi" "RosterToken:RosterTokenAbi" "PublicImmunityVote:PublicImmunityVoteAbi" "GameFactory:GameFactoryAbi"; do
   name="${pair%%:*}"; var="${pair##*:}"
   src="$ROOT/contracts/out/$name.sol/$name.json"
   [ -f "$src" ] || { echo "missing artifact: $src" >&2; exit 1; }
