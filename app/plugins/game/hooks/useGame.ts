@@ -27,7 +27,7 @@ export function useGame(pollMs = 10_000) {
       { ...gameContract, functionName: "pot" },
       { ...gameContract, functionName: "roundCount" },
     ],
-    query: { refetchInterval: pollMs },
+    query: { enabled: !!gameContract.address, refetchInterval: pollMs },
   });
 
   const game: GameState | undefined = data?.every((r) => r.status === "success")
@@ -57,7 +57,7 @@ export function useRound(roundId: number | undefined, pollMs = 10_000) {
       { ...gameContract, functionName: "votersOf", args: [BigInt(roundId ?? 0)] },
       { ...gameContract, functionName: "candidateTeamsOf", args: [BigInt(roundId ?? 0)] },
     ],
-    query: { enabled, refetchInterval: pollMs },
+    query: { enabled: enabled && !!gameContract.address, refetchInterval: pollMs },
   });
 
   const round: Round | undefined =
@@ -83,7 +83,7 @@ export function useTeams(players: Address[], pollMs = 30_000) {
   const gameContract = gameContractFor(useGameAddress());
   const { data } = useReadContracts({
     contracts: players.map((p) => ({ ...gameContract, functionName: "teamOf" as const, args: [p] })),
-    query: { enabled: players.length > 0, refetchInterval: pollMs },
+    query: { enabled: players.length > 0 && !!gameContract.address, refetchInterval: pollMs },
   });
 
   const teamOf: Record<string, number> = {};
@@ -101,7 +101,7 @@ export function useCurrentRoundId(pollMs = 10_000) {
   const { data } = useReadContract({
     ...gameContract,
     functionName: "roundCount",
-    query: { refetchInterval: pollMs },
+    query: { enabled: !!gameContract.address, refetchInterval: pollMs },
   });
 
   const count = data === undefined ? 0 : Number(data as bigint);

@@ -22,6 +22,7 @@ import { useNames, useSetName } from "../hooks/useNames";
 import { useNotifications, useAnnounce } from "../hooks/useNotifications";
 import { Finalists } from "../components/finalists";
 import { MAX_TEAM_SIZE, RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
+import { useGameAddress } from "../utils/activeGame";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
 import { describeGameError } from "../utils/errors";
 import { useAlerts } from "@/context/Alerts";
@@ -29,6 +30,7 @@ import type { Address } from "viem";
 
 export default function GamePage() {
   const { address } = useAccount();
+  const activeGame = useGameAddress();
   const { game, isLoading, error } = useGame();
   const roundId = useCurrentRoundId();
   const { round } = useRound(roundId);
@@ -66,6 +68,28 @@ export default function GamePage() {
             </p>
             {error && <p className="un-fine">{error.message}</p>}
           </section>
+        </div>
+      </main>
+    );
+  }
+
+  // With no default game configured, the first thing anybody sees is the browser rather than an
+  // error about an address that was never meant to hold a contract.
+  if (!activeGame) {
+    return (
+      <main className="un">
+        <Masthead game={EMPTY_GAME} address={address} />
+        <div className="un-wrap un-stack" style={{ gap: 18, paddingTop: 22 }}>
+          <section className="un-panel un-stack">
+            <div className="un-label-dim">No lobby selected</div>
+            <h2 className="un-verdict">Pick a game, or start one.</h2>
+            <p className="un-prose">
+              Every lobby is its own game with its own pot, funded by the people who join it. Nobody
+              runs them — anyone can start one, anyone can join, and anyone can start the game once
+              it is full enough.
+            </p>
+          </section>
+          <Lobbies />
         </div>
       </main>
     );
@@ -499,6 +523,9 @@ const Masthead = ({
     </div>
   </header>
 );
+
+/// A masthead needs a shape even when no game is selected.
+const EMPTY_GAME = { stage: Stage.Lobby, alive: [], jurors: [], pot: 0n, roundCount: 0 };
 
 function stageLabel(stage: Stage): string {
   switch (stage) {

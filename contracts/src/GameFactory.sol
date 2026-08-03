@@ -49,6 +49,8 @@ contract GameFactory {
     );
 
     error ZeroAddress();
+    /// @notice A lobby with no buy-in has no pot, and a lobby with no pot can never open a round.
+    error BuyInRequired();
 
     constructor(GameDeployer deployer_, ICrispVotingPlugin plugin_, IERC20 feeToken_) {
         if (
@@ -69,7 +71,8 @@ contract GameFactory {
     ///      hostage.
     ///
     ///      `SurvivalGame`'s constructor validates the config, so an impossible round shape reverts
-    ///      here rather than producing a lobby nobody can play.
+    ///      here rather than producing a lobby nobody can play. The buy-in is checked on top of
+    ///      that, because a free lobby is valid as a config and unplayable as a lobby.
     ///
     /// @param config The round shape, including the entry fee and the lobby timeout.
     /// @param name A short label for the badges, so a player's wallet distinguishes one game's LIFE
@@ -79,6 +82,15 @@ contract GameFactory {
         external
         returns (SurvivalGame game)
     {
+        // The pot pays for the game as well as the winner: every round's E3 fee comes out of it, so
+        // a lobby that collects nothing fills, gets started, and reverts on the first round. Nobody
+        // is going to fund a stranger's lobby on their behalf, so the buy-in is the only source.
+        //
+        // Enforced here rather than in `SurvivalGame`, because a directly-deployed game may
+        // legitimately be free to enter and funded up front by whoever runs it. That is an operator
+        // choice; a lobby anyone can create is not.
+        if (config.entryFee == 0) revert BuyInRequired();
+
         RosterToken life = new RosterToken(string.concat(name, " Life"), "LIFE", address(this));
         RosterToken jury = new RosterToken(string.concat(name, " Jury"), "JURY", address(this));
 

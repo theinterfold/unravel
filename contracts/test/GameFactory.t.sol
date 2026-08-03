@@ -73,7 +73,7 @@ contract GameFactoryTest is Test {
     // ─── Creation ────────────────────────────────────────────────────────────────────────────
 
     function test_create_producesAPlayableLobby() public {
-        SurvivalGame game = _create(0, 4);
+        SurvivalGame game = _create(ENTRY_FEE, 4);
 
         assertEq(factory.gameCount(), 1);
         assertEq(factory.games(0), address(game));
@@ -83,15 +83,15 @@ contract GameFactoryTest is Test {
         assertEq(RosterToken(address(game.lifeToken())).owner(), address(game));
         assertEq(RosterToken(address(game.juryToken())).owner(), address(game));
 
-        _join(game, 0, 1, 0);
+        _join(game, 0, 1, ENTRY_FEE);
         assertEq(game.aliveCount(), 1);
     }
 
     /// @dev Lobbies must not collide: each gets its own badges, so one game's roster cannot appear
     ///      in another's balances.
     function test_create_lobbiesGetDistinctBadges() public {
-        SurvivalGame a = _create(0, 4);
-        SurvivalGame b = _create(0, 4);
+        SurvivalGame a = _create(ENTRY_FEE, 4);
+        SurvivalGame b = _create(ENTRY_FEE, 4);
 
         assertTrue(address(a.lifeToken()) != address(b.lifeToken()));
         assertTrue(address(a.juryToken()) != address(b.juryToken()));
@@ -101,7 +101,7 @@ contract GameFactoryTest is Test {
     /// @dev An impossible round shape must fail at creation rather than produce a lobby nobody can
     ///      play. The game's own constructor is the authority; this only checks it is reached.
     function test_create_rejectsAnImpossibleConfig() public {
-        SurvivalGame.Config memory bad = _config(0, 4);
+        SurvivalGame.Config memory bad = _config(ENTRY_FEE, 4);
         bad.minPlayers = 1; // at or below finalists
 
         vm.prank(creator);
@@ -109,10 +109,17 @@ contract GameFactoryTest is Test {
         factory.create(bad, "Bad");
     }
 
+    /// @dev A lobby nobody funds cannot open a round, so the factory refuses to make one.
+    function test_create_rejectsAFreeLobby() public {
+        vm.prank(creator);
+        vm.expectRevert(GameFactory.BuyInRequired.selector);
+        factory.create(_config(0, 4), "Free");
+    }
+
     function test_latest_returnsNewestFirstAndPages() public {
-        SurvivalGame a = _create(0, 4);
-        SurvivalGame b = _create(0, 4);
-        SurvivalGame c = _create(0, 4);
+        SurvivalGame a = _create(ENTRY_FEE, 4);
+        SurvivalGame b = _create(ENTRY_FEE, 4);
+        SurvivalGame c = _create(ENTRY_FEE, 4);
 
         address[] memory page = factory.latest(0, 2);
         assertEq(page.length, 2);
@@ -207,7 +214,7 @@ contract GameFactoryTest is Test {
     }
 
     function test_cancel_rejectedWhenTheTimeoutIsDisabled() public {
-        SurvivalGame.Config memory cfg = _config(0, 4);
+        SurvivalGame.Config memory cfg = _config(ENTRY_FEE, 4);
         cfg.lobbyTimeout = 0;
         vm.prank(creator);
         SurvivalGame game = factory.create(cfg, "NoTimeout");

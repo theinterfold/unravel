@@ -245,10 +245,14 @@ run_script() {
   echo "$out"
 }
 
-# ─── 1. tokens ──────────────────────────────────────────────────────────────────────────────────
-# Deployed first because the plugin reads voting power from LIFE and needs its address at init.
+# ─── 1. the plugin's reference token ────────────────────────────────────────────────────────────
+#
+# Not a game's badges — those are deployed per lobby by the factory. The plugin still needs *a*
+# token at initialisation, and under constant credits with a requester-supplied census the only
+# thing it is used for is the ERC-6372 clock that stamps each proposal's snapshot. Nothing is ever
+# minted here.
 
-step "deploying LIFE and JURY"
+step "deploying the plugin's reference token"
 TOKENS_OUT="$(run_script "token deploy" "$ROOT/contracts" "script/DeployTokens.s.sol:DeployTokens" "")"
 LIFE="$(pick "$TOKENS_OUT" LIFE)"; JURY="$(pick "$TOKENS_OUT" JURY)"
 [ -n "$LIFE" ] && [ -n "$JURY" ] || { echo "$TOKENS_OUT" | tail -15; fail "could not parse token addresses"; }
@@ -269,17 +273,7 @@ DAO="$(pick "$PLUGIN_OUT" DAO)"; PLUGIN="$(pick "$PLUGIN_OUT" PLUGIN)"
 echo "  DAO    $DAO"
 echo "  PLUGIN $PLUGIN"
 
-# ─── 3. game ────────────────────────────────────────────────────────────────────────────────────
-
-step "deploying the game ($TEAM_COUNT teams, min $MIN_MEMBERS_PER_TEAM each, starts at $MIN_PLAYERS)"
-GAME_OUT="$(run_script "game deploy" "$ROOT/contracts" "script/DeployGame.s.sol:DeployGame" \
-  "LIFE_TOKEN_ADDRESS=$LIFE JURY_TOKEN_ADDRESS=$JURY CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN FEE_TOKEN_ADDRESS=$FEE_TOKEN CAMPAIGN_DURATION=$CAMPAIGN_DURATION BALLOT_DURATION=$BALLOT_DURATION TALLY_GRACE=$TALLY_GRACE TEAM_COUNT=$TEAM_COUNT MIN_MEMBERS_PER_TEAM=$MIN_MEMBERS_PER_TEAM MIN_PLAYERS=$MIN_PLAYERS MERGE_AT=$MERGE_AT FINALISTS=$FINALISTS MAX_MISSED_CHECKINS=$MAX_MISSED_CHECKINS ENTRY_FEE=$ENTRY_FEE")"
-GAME="$(pick "$GAME_OUT" GAME)"
-[ -n "$GAME" ] || { echo "$GAME_OUT" | tail -25; fail "could not parse the game address"; }
-DEPLOY_BLOCK="$(cast block-number --rpc-url "$RPC" 2>/dev/null || echo 0)"
-echo "  GAME $GAME (block $DEPLOY_BLOCK)"
-
-# ─── 3b. lobby factory ──────────────────────────────────────────────────────────────────────────
+# ─── 3. lobby factory ──────────────────────────────────────────────────────────────────────────
 #
 # Deployed once and shared by every lobby after it, which is only possible because the plugin
 # records a census provider per round rather than globally.
@@ -293,11 +287,11 @@ NAMES="$(pick "$FACTORY_OUT" NAMES)"
 echo "  FACTORY $FACTORY"
 echo "  NAMES   $NAMES"
 
-# ─── 4. fund the pot ────────────────────────────────────────────────────────────────────────────
+# ─── 4. fee tokens ──────────────────────────────────────────────────────────────────────────────
 #
-# Every round's E3 fee is paid from the pot, so a game with an empty pot cannot open a round. The
-# faucet dispenses the fee token; amounts and decimals are read off the contract rather than assumed
-# (the fee token is 6 decimals, FOLD is 18 — hardcoding either would be a silent factor-of-10^12 bug).
+# No pot is funded here, because no game is deployed here: lobbies are created from the app and
+# funded by their players' buy-ins. This only puts fee tokens in the deployer's hands so they can
+# join one.
 
 step "claiming fee tokens from the faucet"
 if cast send "$FAUCET" "faucet()" --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null 2>&1; then
@@ -306,42 +300,12 @@ else
   # Reverts once the deployer already holds enough, which is a success for our purposes.
   echo "  faucet declined (deployer already holds enough — continuing)"
 fi
-
 FEE_BALANCE="$(cast call "$FEE_TOKEN" "balanceOf(address)(uint256)" "$DEPLOYER" --rpc-url "$RPC" 2>/dev/null | awk '{print $1}')"
-FEE_BALANCE="${FEE_BALANCE:-0}"
-if [ "$FEE_BALANCE" = "0" ]; then
-  step "no fee tokens — the pot is unfunded and the game cannot open a round"
-  echo "  claim manually, then fund:"
-  echo "    cast send $FAUCET 'faucet()' --rpc-url $RPC --private-key \$PRIVATE_KEY"
-  echo "    cast send $FEE_TOKEN 'approve(address,uint256)' $GAME <amount> --rpc-url $RPC --private-key \$PRIVATE_KEY"
-  echo "    cast send $GAME 'fund(uint256)' <amount> --rpc-url $RPC --private-key \$PRIVATE_KEY"
-else
-  step "funding the pot with $FEE_BALANCE fee-token units"
-  cast send "$FEE_TOKEN" "approve(address,uint256)" "$GAME" "$FEE_BALANCE" \
-    --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null || fail "approve failed"
-  cast send "$GAME" "fund(uint256)" "$FEE_BALANCE" \
-    --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null || fail "fund failed"
+echo "  deployer holds ${FEE_BALANCE:-0} fee-token units"
 
-  POT="$(cast call "$GAME" "pot()(uint256)" --rpc-url "$RPC" 2>/dev/null)"
-  [ "${POT%% *}" != "0" ] || fail "pot is still zero after funding"
-  echo "  pot = $POT"
-fi
+DEPLOY_BLOCK="$(cast block-number --rpc-url "$RPC" 2>/dev/null || echo 0)"
 
-# ─── 5. census link ─────────────────────────────────────────────────────────────────────────────
-#
-# The coordination server resolves the electorate by asking the E3's requester, which is the plugin.
-# Without this the roster is ignored and eligibility falls back to token-transfer-log discovery.
-
-step "pointing the plugin's census at the game"
-cast send "$PLUGIN" "setCensusProvider(address)" "$GAME" \
-  --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null || fail "setCensusProvider failed"
-
-lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
-PROVIDER="$(cast call "$PLUGIN" "censusProvider()(address)" --rpc-url "$RPC" 2>/dev/null)"
-[ "$(lower "$PROVIDER")" = "$(lower "$GAME")" ] || fail "censusProvider is $PROVIDER, expected $GAME"
-echo "  censusProvider = $PROVIDER"
-
-# ─── 6. rehearse a round (dry run only) ─────────────────────────────────────────────────────────
+# ─── 5. rehearse a lobby (dry run only) ─────────────────────────────────────────────────────────
 #
 # The check worth having. `startGame` opens the first round, which routes through the plugin into the
 # real Interfold `request` — so this is where an ABI mismatch surfaces, and it surfaces as a revert
@@ -349,16 +313,38 @@ echo "  censusProvider = $PROVIDER"
 # deploy means redeploying.
 if [ "$DRY_RUN" = "1" ]; then
   NEED=$MIN_PLAYERS
-  step "rehearsing: seating $NEED players (the lobby floor) and opening a round"
+  step "rehearsing: creating a lobby, seating $NEED players and opening a round"
+
+  # The rehearsal now goes through the factory, because that is the only way a lobby is made — the
+  # deploy no longer produces a standalone game. So this exercises the path players actually take.
+  #
+  # The buy-in has to cover the round fees, since the pot pays for the game as well as the winner.
+  ENTRY_FEE_UNITS=$((30 * 1000000))
+  CONFIG="($CAMPAIGN_DURATION,$BALLOT_DURATION,$TALLY_GRACE,$TEAM_COUNT,$MIN_MEMBERS_PER_TEAM,$MIN_PLAYERS,86400,$MERGE_AT,$FINALISTS,$MAX_MISSED_CHECKINS,$ENTRY_FEE_UNITS)"
+
+  cast send "$FACTORY" "create((uint64,uint64,uint64,uint8,uint8,uint8,uint64,uint8,uint8,uint8,uint256),string)" \
+    "$CONFIG" "Rehearsal" --gas-limit 9000000 \
+    --rpc-url "$RPC" --private-key "$PRIVATE_KEY" >/dev/null 2>&1 || fail "factory.create failed"
+
+  GAME="$(cast call "$FACTORY" 'games(uint256)(address)' 0 --rpc-url "$RPC" 2>/dev/null)"
+  [ -n "$GAME" ] || fail "the factory created no lobby"
+  echo "  lobby $GAME"
 
   MNEMONIC="test test test test test test test test test test test junk"
   i=0
   while [ "$i" -lt "$NEED" ]; do
     KEY="$(cast wallet private-key --mnemonic "$MNEMONIC" --mnemonic-index "$i" 2>/dev/null)"
+    PLAYER="$(cast wallet address --private-key "$KEY")"
     TEAM=$(((i % TEAM_COUNT) + 1))
+
+    # Players buy in, so each needs fee tokens and an approval before joining.
+    cast send "$FAUCET" "faucet()" --rpc-url "$RPC" --private-key "$KEY" >/dev/null 2>&1 || true
+    cast send "$FEE_TOKEN" "approve(address,uint256)" "$GAME" "$ENTRY_FEE_UNITS" \
+      --rpc-url "$RPC" --private-key "$KEY" >/dev/null 2>&1 || fail "approve failed for player $i"
+
     # A fixed gas limit: estimation races the ERC20Votes checkpoint write, whose cost is
     # state-dependent, and an underestimate surfaces as an opaque out-of-gas.
-    cast send "$GAME" "join(uint8)" "$TEAM" --gas-limit 400000 \
+    cast send "$GAME" "join(uint8)" "$TEAM" --gas-limit 500000 \
       --rpc-url "$RPC" --private-key "$KEY" >/dev/null 2>&1 || fail "join failed for player $i"
     i=$((i + 1))
   done
@@ -380,6 +366,7 @@ if [ "$DRY_RUN" = "1" ]; then
   E3="$(cast call "$GAME" "$ROUND_SIG" 0 --rpc-url "$RPC" 2>/dev/null |
     sed -n '3p' | sed 's/ \[.*\]//')"
   echo "  round 0 opened, e3Id $E3 — the Interfold interface matches"
+  echo "  pot $(cast call "$GAME" 'pot()(uint256)' --rpc-url "$RPC" 2>/dev/null) after the first round's fee"
   # An e3Id is only meaningful if Interfold agrees it exists; a misread offset would print a
   # plausible-looking number that belongs to no E3.
   cast call "$INTERFOLD_ADDRESS" "getE3(uint256)" "$E3" --rpc-url "$RPC" >/dev/null 2>&1 ||
@@ -404,7 +391,6 @@ FAUCET=$FAUCET
 CRISP_PROGRAM=$CRISP_PROGRAM
 DAO=$DAO
 PLUGIN=$PLUGIN
-GAME=$GAME
 FACTORY=$FACTORY
 LIFE=$LIFE
 JURY=$JURY
@@ -428,7 +414,8 @@ step "writing app/.env"
 
 cat > "$ROOT/app/.env" <<EOF
 # Generated by scripts/deploy-sepolia.sh — regenerate rather than hand-edit.
-NEXT_PUBLIC_GAME_ADDRESS=$GAME
+# No default game: lobbies are created from the app, so the browser is where you start.
+NEXT_PUBLIC_GAME_ADDRESS=
 NEXT_PUBLIC_GAME_FACTORY_ADDRESS=$FACTORY
 NEXT_PUBLIC_NAME_REGISTRY_ADDRESS=$NAMES
 NEXT_PUBLIC_LIFE_TOKEN_ADDRESS=$LIFE
@@ -453,7 +440,6 @@ cat <<EOF
 
 $(printf '\033[1m')Deployed to Sepolia.$(printf '\033[0m')
 
-  GAME    $GAME
   FACTORY $FACTORY
   PLUGIN  $PLUGIN
   DAO     $DAO
