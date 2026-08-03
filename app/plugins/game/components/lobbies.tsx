@@ -2,7 +2,8 @@ import { useState, type FC } from "react";
 import type { Address } from "viem";
 import { useAccount, useReadContract, useReadContracts, useWriteContract } from "wagmi";
 import { erc20Abi } from "viem";
-import { PUB_GAME_FACTORY_ADDRESS, PUB_INTERFOLD_FEE_TOKEN_ADDRESS } from "@/constants";
+import { PUB_ENABLE_FAUCET, PUB_GAME_FACTORY_ADDRESS, PUB_INTERFOLD_FEE_TOKEN_ADDRESS } from "@/constants";
+import { useFaucet } from "@/hooks/useFaucet";
 import { useAlerts } from "@/context/Alerts";
 import { GameFactoryAbi } from "../artifacts/GameFactory";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
@@ -189,13 +190,29 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
   const underfunded = fundingValue < needed;
   const prize = Math.max(0, fundingValue - needed);
 
+  // What the creator can actually afford. Checked here rather than left to the transaction, because
+  // the failure is otherwise an ERC20InsufficientBalance from a contract the form never mentions,
+  // arriving after two wallet prompts.
+  const { data: balance, refetch: refetchBalance } = useReadContract({
+    address: PUB_INTERFOLD_FEE_TOKEN_ADDRESS,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: creator ? [creator] : undefined,
+    query: { enabled: !!creator && !!PUB_INTERFOLD_FEE_TOKEN_ADDRESS },
+  });
+
+  const decimals = feeToken.decimals ?? 6;
+  const held = balance === undefined ? undefined : Number(balance) / 10 ** decimals;
+  const shortBy = held === undefined ? 0 : Math.max(0, fundingValue - held);
+
+  const faucet = useFaucet();
+
   const create = async () => {
     if (!creator) {
       addAlert("Connect a wallet to start a lobby.", { type: "error" });
       return;
     }
     try {
-      const decimals = feeToken.decimals ?? 6;
       const amount = BigInt(Math.round(fundingValue * 10 ** decimals));
 
       // Tribes of at least one, and a merge below the floor so tribal rounds actually happen —
@@ -302,7 +319,9 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
         </label>
 
         <label className="un-field">
-          <span className="un-field-label">You put up ({sym})</span>
+          <span className="un-field-label">
+            You put up ({sym}){held !== undefined && ` · you hold ${held}`}
+          </span>
           <input
             className="un-input"
             value={funding ?? String(needed * 2)}
@@ -310,6 +329,38 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
           />
         </label>
       </div>
+
+      {/* The faucet lives in the nav, which is nowhere near the moment you discover you need it.
+          Standing a pot is the only thing in this app that costs the fee token, so this is where
+          running out actually happens. */}
+      {shortBy > 0 && (
+        <div className="un-row" style={{ gap: 10, alignItems: "baseline" }}>
+          <p className="un-warn" style={{ margin: 0 }}>
+            You hold {held} {sym} and need {shortBy} more.
+          </p>
+          {PUB_ENABLE_FAUCET && (
+            <button
+              type="button"
+              className="un-btn un-btn-ghost"
+              disabled={faucet.isConfirming}
+              title={faucet.blockedReason}
+              onClick={() => {
+                if (!faucet.canClaim) {
+                  addAlert(faucet.blockedReason ?? "Cannot claim from the faucet right now", {
+                    type: "error",
+                  });
+                  return;
+                }
+                faucet.claim();
+                // The claim's own confirmation does not know about this form's balance read.
+                setTimeout(() => void refetchBalance(), 4000);
+              }}
+            >
+              {faucet.isConfirming ? "Claiming…" : "Claim test tokens"}
+            </button>
+          )}
+        </div>
+      )}
 
       <p className="un-fine" style={{ maxWidth: "68ch" }}>
         Free to join. You stand the pot; everyone else needs nothing but gas. Anyone can start it
@@ -338,7 +389,9 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
         <button
           type="button"
           className="un-btn"
-          disabled={isPending || underfunded}
+          // Blocked on the balance too: the alternative is two wallet prompts ending in a revert
+          // from the token, which costs gas on the approval that did go through.
+          disabled={isPending || underfunded || shortBy > 0}
           onClick={() => void create()}
         >
           {step === "approving"
