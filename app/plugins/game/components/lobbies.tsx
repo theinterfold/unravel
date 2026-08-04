@@ -32,9 +32,13 @@ const FINALISTS = 2;
 ///
 /// Not a contract rule — the constructor only rejects zero. It is the committee: the ballot cannot
 /// open until the DKG publishes its key, and a campaign shorter than that produces a round whose
-/// ballot is already open by the time anyone can vote in it. Five minutes clears it comfortably on
-/// Sepolia; a busier chain would want more.
-const MIN_CAMPAIGN_MINUTES = 5;
+/// ballot is already open by the time anyone can vote in it.
+///
+/// Configurable because the right value depends on how the ciphernodes are running, and the range
+/// is wide. With full recursive proof aggregation a committee takes minutes; with aggregation
+/// skipped it takes seconds. Five is a safe default for the former and far too conservative for
+/// the latter — measure the first round and set this to what you actually observe.
+const MIN_CAMPAIGN_MINUTES = Number(process.env.NEXT_PUBLIC_MIN_CAMPAIGN_MINUTES ?? 5);
 
 /// Fallback for the plugin's own floor on ballot length, used only until the read lands. The real
 /// value is read from the deployed plugin, because it is a setting rather than a constant and a
