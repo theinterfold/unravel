@@ -202,6 +202,83 @@ contract SurvivalGameTest is Test {
         game.settleRound();
     }
 
+    /// @dev These games charge no entry fee, so nothing reaches the pot from joining — and every
+    ///      round's E3 fee is paid from it.
+    function _fundPot() internal {
+        fee.mint(owner, FEE * 20);
+        vm.startPrank(owner);
+        fee.approve(address(game), FEE * 20);
+        game.fund(FEE * 20);
+        vm.stopPrank();
+    }
+
+    // ─── Immunity in council rounds ──────────────────────────────────────────────────────────
+
+    /// @dev Immunity used to apply only after the merge, so a player the room had publicly voted to
+    ///      protect could still be sent home by their own council — which is most of a long game.
+    function test_immunity_removesTheProtectedMemberFromACouncil() public {
+        _seed(6);
+        _deployWithFee(2, 3, 2, 2, 0, 0);
+        _fundPot();
+        _seat(6, 2);
+        game.startGame();
+
+        MockImmunitySource source = new MockImmunitySource();
+        vm.prank(owner);
+        game.setImmunitySource(source);
+
+        // Round 0 is tribal; condemn team 1, whose council is round 1.
+        uint8[] memory teams = game.candidateTeamsOf(0);
+        uint256 teamOne;
+        for (uint256 i; i < teams.length; ++i) {
+            if (teams[i] == 1) teamOne = i;
+        }
+        _settleOn(teamOne);
+
+        address[] memory members = game.membersOf(1);
+        assertEq(members.length, 3, "a three-person council leaves room to protect one");
+        source.set(1, members[0]);
+
+        game.openRound();
+        address[] memory candidates = game.candidatesOf(1);
+
+        assertEq(candidates.length, 2, "the protected member is off the ballot");
+        for (uint256 i; i < candidates.length; ++i) {
+            assertTrue(candidates[i] != members[0], "protected member is not a candidate");
+        }
+        // They still vote — removed as a target, not as a voter.
+        address[] memory voters = game.votersOf(1);
+        assertEq(voters.length, 3, "the whole team still votes");
+    }
+
+    /// @dev A one-option ballot proves nothing and cannot be cast, so `_openRound` rejects it. In a
+    ///      two-person council immunity is therefore overridden rather than wedging the round.
+    function test_immunity_isOverriddenInATwoPersonCouncil() public {
+        _seed(4);
+        _deployWithFee(2, 2, 2, 2, 0, 0);
+        _fundPot();
+        _seat(4, 2);
+        game.startGame();
+
+        MockImmunitySource source = new MockImmunitySource();
+        vm.prank(owner);
+        game.setImmunitySource(source);
+
+        uint8[] memory teams = game.candidateTeamsOf(0);
+        uint256 teamOne;
+        for (uint256 i; i < teams.length; ++i) {
+            if (teams[i] == 1) teamOne = i;
+        }
+        _settleOn(teamOne);
+
+        address[] memory members = game.membersOf(1);
+        assertEq(members.length, 2);
+        source.set(1, members[0]);
+
+        game.openRound();
+        assertEq(game.candidatesOf(1).length, 2, "both remain on the ballot");
+    }
+
     function _optionCount(uint256 roundId) internal view returns (uint256) {
         (SurvivalGame.RoundKind kind,,,,,,,,) = game.getRound(roundId);
         return kind == SurvivalGame.RoundKind.Tribal

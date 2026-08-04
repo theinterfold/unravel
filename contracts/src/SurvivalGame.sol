@@ -357,9 +357,10 @@ contract SurvivalGame is Ownable {
         } else if (kind == RoundKind.Council) {
             uint8 target = rounds[roundId - 1].targetTeam;
             round.targetTeam = target;
-            round.candidates = teamMembers[target];
+            round.candidates = _eliminableMembers(target, roundId);
             // Only the condemned team votes. Letting everyone vote would make the tribal round
-            // pointless — the same majority would simply pick the victim directly.
+            // pointless — the same majority would simply pick the victim directly. The immune
+            // member still votes; they are removed as a target, not as a voter.
             round.voters = teamMembers[target];
             options = round.candidates.length;
         } else if (kind == RoundKind.Individual) {
@@ -836,14 +837,48 @@ contract SurvivalGame is Ownable {
 
     /// @dev Post-merge candidate list, with the immune player removed if there is one.
     function _eliminableAlive(uint256 roundId) internal view returns (address[] memory) {
+        return _withoutImmune(alive, roundId);
+    }
+
+    /// @dev A condemned team's candidate list, with the immune member removed if there is one.
+    ///
+    ///      Immunity used to apply only after the merge, which made it inert for the entire tribal
+    ///      phase — the half of the game where a public protection vote has the most to say. A
+    ///      player the room voted to protect could still be sent home by their own council.
+    function _eliminableMembers(uint8 team, uint256 roundId) internal view returns (address[] memory) {
+        return _withoutImmune(teamMembers[team], roundId);
+    }
+
+    /// @dev Drops the immune player from a candidate list, unless doing so would leave fewer than
+    ///      two options.
+    ///
+    ///      That floor is not a nicety: `_openRound` rejects a ballot with one option, because a
+    ///      one-option vote proves nothing and cannot be cast. So in a two-person council immunity
+    ///      is simply overridden — the alternative is a round that cannot open at all, which would
+    ///      wedge the game. Being the protected half of a doomed pair is the one place protection
+    ///      does not save you.
+    function _withoutImmune(address[] memory candidates, uint256 roundId)
+        internal
+        view
+        returns (address[] memory)
+    {
         address immune =
             address(immunitySource) == address(0) ? address(0) : immunitySource.immuneFor(roundId);
-        if (immune == address(0) || !_isAlive(immune)) return alive;
+        if (immune == address(0) || !_isAlive(immune) || candidates.length < 3) return candidates;
 
-        address[] memory result = new address[](alive.length - 1);
+        bool present;
+        for (uint256 i = 0; i < candidates.length; ++i) {
+            if (candidates[i] == immune) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) return candidates;
+
+        address[] memory result = new address[](candidates.length - 1);
         uint256 cursor;
-        for (uint256 i = 0; i < alive.length; ++i) {
-            if (alive[i] != immune) result[cursor++] = alive[i];
+        for (uint256 i = 0; i < candidates.length; ++i) {
+            if (candidates[i] != immune) result[cursor++] = candidates[i];
         }
         return result;
     }
