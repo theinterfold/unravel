@@ -99,6 +99,11 @@ FINALISTS="${FINALISTS:-2}"
 # fifteen minutes costs roughly 1% of a ~14-token round.
 CAMPAIGN_DURATION="${CAMPAIGN_DURATION:-900}"  # 15m — floored by sortition + DKG, not by taste
 BALLOT_DURATION="${BALLOT_DURATION:-2700}"     # 45m — floored by browser proving, per voter
+# The plugin's own floor on any ballot, for every lobby ever created against it. Deliberately not
+# `BALLOT_DURATION`: that is one rehearsal's window, while this is a permanent lower bound, and
+# tying them meant a 45m rehearsal forbade every short game afterwards. Set low and let each lobby
+# choose its own — the form still enforces this as a minimum.
+MIN_DURATION="${MIN_DURATION:-180}"            # 3m
 TALLY_GRACE="${TALLY_GRACE:-600}"              # 10m
 MAX_MISSED_CHECKINS="${MAX_MISSED_CHECKINS:-2}"
 ENTRY_FEE="${ENTRY_FEE:-0}"
@@ -267,7 +272,7 @@ echo "  JURY $JURY"
 
 step "deploying DAO and CRISP voting plugin"
 PLUGIN_OUT="$(run_script "plugin deploy" "$ROOT/plugin" "script/DeployLocal.s.sol:DeployLocal" \
-  "INTERFOLD_ADDRESS=$INTERFOLD_ADDRESS CRISP_PROGRAM_ADDRESS=$CRISP_PROGRAM VOTING_TOKEN_ADDRESS=$LIFE COMPUTE_PROVIDER_PARAMS=$COMPUTE_PROVIDER_PARAMS COMMITTEE_SIZE=$COMMITTEE_SIZE PARAM_SET=$PARAM_SET MIN_DURATION=$BALLOT_DURATION")"
+  "INTERFOLD_ADDRESS=$INTERFOLD_ADDRESS CRISP_PROGRAM_ADDRESS=$CRISP_PROGRAM VOTING_TOKEN_ADDRESS=$LIFE COMPUTE_PROVIDER_PARAMS=$COMPUTE_PROVIDER_PARAMS COMMITTEE_SIZE=$COMMITTEE_SIZE PARAM_SET=$PARAM_SET MIN_DURATION=$MIN_DURATION")"
 DAO="$(pick "$PLUGIN_OUT" DAO)"; PLUGIN="$(pick "$PLUGIN_OUT" PLUGIN)"
 [ -n "$PLUGIN" ] || { echo "$PLUGIN_OUT" | tail -25; fail "could not parse plugin address"; }
 echo "  DAO    $DAO"
@@ -432,6 +437,7 @@ MIN_MEMBERS_PER_TEAM=$MIN_MEMBERS_PER_TEAM
 MIN_PLAYERS=$MIN_PLAYERS
 CAMPAIGN_DURATION=$CAMPAIGN_DURATION
 BALLOT_DURATION=$BALLOT_DURATION
+MIN_DURATION=$MIN_DURATION
 TALLY_GRACE=$TALLY_GRACE
 EOF
 

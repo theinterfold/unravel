@@ -38,12 +38,12 @@ const FINALISTS = 2;
 /// is wide. With full recursive proof aggregation a committee takes minutes; with aggregation
 /// skipped it takes seconds. Five is a safe default for the former and far too conservative for
 /// the latter — measure the first round and set this to what you actually observe.
-const MIN_CAMPAIGN_MINUTES = Number(process.env.NEXT_PUBLIC_MIN_CAMPAIGN_MINUTES ?? 5);
+const MIN_CAMPAIGN_MINUTES = Number(process.env.NEXT_PUBLIC_MIN_CAMPAIGN_MINUTES ?? 1);
 
 /// Fallback for the plugin's own floor on ballot length, used only until the read lands. The real
 /// value is read from the deployed plugin, because it is a setting rather than a constant and a
 /// stale copy here would fail at `startGame` rather than in this form.
-const FALLBACK_MIN_BALLOT_MINUTES = 10;
+const FALLBACK_MIN_BALLOT_MINUTES = 3;
 
 /// `minDuration()` alone. The plugin's full ABI is not among the artifacts this app syncs, and one
 /// getter does not justify adding it.
@@ -209,8 +209,11 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
 
   const [name, setName] = useState("");
   const [players, setPlayers] = useState(6);
-  const [campaign, setCampaign] = useState(15);
-  const [ballot, setBallot] = useState(45);
+  // Defaults, not floors — both fields are free down to the minimums below. Chosen so the common
+  // case is a game that finishes inside a meeting rather than an afternoon; a long async game is
+  // two edits away.
+  const [campaign, setCampaign] = useState(5);
+  const [ballot, setBallot] = useState(10);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<"idle" | "approving" | "creating">("idle");
 
@@ -457,7 +460,7 @@ const CreateLobby: FC<{ onCreated: () => void }> = ({ onCreated }) => {
           like to play — and the campaign is the half where the game actually happens. */}
       <p className={campaignTooShort || ballotTooShort ? "un-warn" : "un-fine"} style={{ maxWidth: "68ch" }}>
         {campaignTooShort
-          ? `The campaign needs at least ${MIN_CAMPAIGN_MINUTES} minutes: the ballot cannot open until the committee has published its key, and a shorter window opens a ballot nobody can vote in yet.`
+          ? `The campaign needs at least ${MIN_CAMPAIGN_MINUTES} ${MIN_CAMPAIGN_MINUTES === 1 ? "minute" : "minutes"}: the ballot cannot open until the committee has published its key, and a shorter window opens a ballot nobody can vote in yet.`
           : ballotTooShort
             ? `This deployment will not accept a ballot shorter than ${minBallot} minutes. A lobby created with less fails when someone tries to start it, not now.`
             : `Every round runs a ${campaign}-minute campaign and then a ${ballot}-minute ballot, so a round takes about ${campaign + ballot} minutes and the whole game around ${Math.round(((campaign + ballot) * rounds) / 60)} hours. The campaign is where the game is played — the ballot is mostly waiting.`}
