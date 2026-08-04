@@ -71,6 +71,24 @@ export default function RulesPage() {
           </p>
         </Section>
 
+        <Section title="Immunity: the vote everyone can see">
+          <p className="un-prose">
+            Alongside the sealed ballot runs a second vote that is completely public. You nominate one living player
+            to be <strong>immune</strong> — they cannot be eliminated in the next round — and your name is attached to
+            it for everyone to read.
+          </p>
+          <p className="un-prose">
+            This is the whole game in one pair of actions. You protect somebody on the record while the knife stays
+            invisible, and the two need not be the same person. Whoever leads when the next round opens is taken off
+            the ballot; a tie protects nobody, because a bonus nobody actually voted for is worse than none.
+          </p>
+          <p className="un-note">
+            Two edges worth knowing. The protected player still votes — they are removed as a target, not as a voter.
+            And in a council of exactly two, immunity is overridden: taking one name off a two-name ballot leaves one
+            option, which cannot be voted on at all, so the round would simply be unable to open.
+          </p>
+        </Section>
+
         <Section title="The four kinds of round">
           <div style={{ overflowX: "auto" }}>
             <table className="un-rules-table">
@@ -129,6 +147,42 @@ export default function RulesPage() {
           </p>
         </Section>
 
+        <Section title="Allegiance: the one thing nobody can see">
+          <p className="un-prose">
+            Before the game starts, every player secretly backs someone <em>else</em> to win the whole thing. There is
+            a side pot, and it splits between everyone who called it right.
+          </p>
+          <p className="un-prose">
+            This is the only private information in the game. Everything else — the roster, the counts, who protected
+            whom — is public, which is why a game without it rewards being agreeable above all else. With it, every
+            player has a motive they must conceal, and the campaign finally has something worth lying about.
+          </p>
+          <p className="un-prose">
+            It does not expire when you do. A juror still holds a stake, so the final vote is cast by people with
+            reasons of their own — not merely by whoever resents whom.
+          </p>
+          <p className="un-note">
+            How the secrecy works: the chain stores only a hash of your pick and a random number. Nobody can read it,
+            including us, and nothing can decrypt it — the only way to open a commitment is to publish it yourself,
+            which is what you do at the end to prove you were right. The random number lives in your browser, so
+            clearing your storage makes your pick unopenable forever. You cannot back yourself, and you cannot change
+            your mind once the game starts.
+          </p>
+        </Section>
+
+        <Section title="The dead still point">
+          <p className="un-prose">
+            Being voted out does not end your evening. Each round the graveyard collectively names one living player,
+            in the open, for everyone to see.
+          </p>
+          <p className="un-prose">
+            It has no mechanical weight whatsoever — it cannot eliminate, protect, or move a single vote. That is
+            deliberate. Give the dead real power and every elimination becomes a recruiting drive, and the endgame goes
+            to whoever assembled the largest bloc of people who already lost. An accusation nobody is obliged to honour
+            is worth more: it feeds the campaign and decides nothing.
+          </p>
+        </Section>
+
         <Section title="The prize">
           <p className="un-prose">
             One pot, and the last player standing takes all of it
@@ -175,6 +229,11 @@ export default function RulesPage() {
           <p className="un-prose">
             Which is the joke at the centre of it: the ballot makes lying free, and the jury makes it expensive anyway.
           </p>
+          <p className="un-prose">
+            And every round you act three times over. You protect someone with your name on it, you knife someone with
+            nobody&apos;s, and you are quietly steering the whole thing toward a person you never named at all. Those
+            three do not have to agree, and the game is what happens in the gaps between them.
+          </p>
         </Section>
 
         <Section title="The fine print">
@@ -197,6 +256,18 @@ export default function RulesPage() {
             <li>
               Anyone can settle a round or open the next one. It is a clock, not a privilege, and nobody can stall the
               game by refusing.
+            </li>
+            <li>
+              Immunity ties protect nobody, and a two-person council overrides immunity entirely — one name cannot be
+              taken off a two-name ballot without leaving a vote that cannot be cast.
+            </li>
+            <li>
+              Allegiance picks are made before the game starts, cannot be changed, and cannot be yourself. Reveals stay
+              open for three days after the last ballot closes; anything unclaimed after that can be swept by anyone.
+            </li>
+            <li>
+              The side pot is funded by whoever chooses to. If nobody does, allegiance still runs — the picks are real,
+              there is simply nothing riding on them.
             </li>
             <li>
               The tribes are {TRIBES.map((t) => t.name).join(", ")}. Colour is the fastest read on the board and means
