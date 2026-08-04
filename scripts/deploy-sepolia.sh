@@ -104,6 +104,11 @@ BALLOT_DURATION="${BALLOT_DURATION:-2700}"     # 45m — floored by browser prov
 # tying them meant a 45m rehearsal forbade every short game afterwards. Set low and let each lobby
 # choose its own — the form still enforces this as a minimum.
 MIN_DURATION="${MIN_DURATION:-180}"            # 3m
+# The app's own floor on the campaign window, in whole minutes. Not a contract rule: the campaign
+# has to outlast committee sortition and the DKG, and how long that takes depends entirely on
+# whether the ciphernodes are aggregating proofs or skipping them. Written into app/.env so it
+# survives a redeploy rather than being re-added by hand each time.
+MIN_CAMPAIGN_MINUTES="${MIN_CAMPAIGN_MINUTES:-1}"
 TALLY_GRACE="${TALLY_GRACE:-600}"              # 10m
 MAX_MISSED_CHECKINS="${MAX_MISSED_CHECKINS:-2}"
 ENTRY_FEE="${ENTRY_FEE:-0}"
@@ -438,6 +443,7 @@ MIN_PLAYERS=$MIN_PLAYERS
 CAMPAIGN_DURATION=$CAMPAIGN_DURATION
 BALLOT_DURATION=$BALLOT_DURATION
 MIN_DURATION=$MIN_DURATION
+MIN_CAMPAIGN_MINUTES=$MIN_CAMPAIGN_MINUTES
 TALLY_GRACE=$TALLY_GRACE
 EOF
 
@@ -473,6 +479,8 @@ NEXT_PUBLIC_CRISP_PROGRAM_ADDRESS=$CRISP_PROGRAM
 NEXT_PUBLIC_CRISP_VOTING_PLUGIN_ADDRESS=$PLUGIN
 NEXT_PUBLIC_DAO_ADDRESS=$DAO
 NEXT_PUBLIC_CRISP_SERVER_URL=$CRISP_SERVER
+
+NEXT_PUBLIC_MIN_CAMPAIGN_MINUTES=$MIN_CAMPAIGN_MINUTES
 
 NEXT_PUBLIC_CHAIN_NAME=sepolia
 NEXT_PUBLIC_WEB3_ENDPOINT=$RPC
