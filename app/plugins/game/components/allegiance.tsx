@@ -1,6 +1,8 @@
 import { useState, type FC } from "react";
-import { encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
-import { useReadContract, useWriteContract } from "wagmi";
+import { encodeAbiParameters, erc20Abi, keccak256, type Address, type Hex } from "viem";
+import { useAccount, useReadContract, useWriteContract } from "wagmi";
+import { PUB_INTERFOLD_FEE_TOKEN_ADDRESS } from "@/constants";
+import { publicClient } from "../utils/client";
 import { useAlerts } from "@/context/Alerts";
 import { SecretAllegianceAbi } from "../artifacts/SecretAllegiance";
 import { useGameTx, txLabel } from "../hooks/useGameTx";
@@ -58,6 +60,8 @@ export const Allegiance: FC<AllegianceProps> = ({
   const tx = useGameTx();
   const feeToken = useFeeToken();
   const [choice, setChoice] = useState<Address | undefined>();
+  const [topUp, setTopUp] = useState("");
+  const { address: wallet } = useAccount();
 
   const { data: commitment, refetch: refetchCommitment } = useReadContract({
     address: contract,
@@ -67,7 +71,7 @@ export const Allegiance: FC<AllegianceProps> = ({
     query: { enabled: !!self, refetchInterval: 15_000 },
   });
 
-  const { data: pool } = useReadContract({
+  const { data: pool, refetch: refetchPool } = useReadContract({
     address: contract,
     abi: SecretAllegianceAbi,
     functionName: "pool",
@@ -132,6 +136,48 @@ export const Allegiance: FC<AllegianceProps> = ({
     if (ok) void refetchRevealed();
   };
 
+  /// Anyone can fund, any time. Exposed here because an unfunded pool makes the whole mechanic
+  /// roleplay — the hidden pick still exists, but nothing rides on it, which is most of the point.
+  const fund = async () => {
+    if (!wallet) return;
+    const decimals = feeToken.decimals ?? 6;
+    const amount = BigInt(Math.round((Number(topUp) || 0) * 10 ** decimals));
+    if (amount === 0n) return;
+
+    const allowance = await publicClient.readContract({
+      address: PUB_INTERFOLD_FEE_TOKEN_ADDRESS,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: [wallet, contract],
+    });
+
+    if (allowance < amount) {
+      const approval = await tx.run("approve", () =>
+        writeContractAsync({
+          address: PUB_INTERFOLD_FEE_TOKEN_ADDRESS,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [contract, amount],
+        })
+      );
+      if (!approval) return;
+    }
+
+    const ok = await tx.run("fund", () =>
+      writeContractAsync({
+        address: contract,
+        abi: SecretAllegianceAbi,
+        functionName: "fund",
+        args: [amount],
+      })
+    );
+    if (ok) {
+      setTopUp("");
+      addAlert("Added to the side pot.", { type: "success", timeout: 4000 });
+      void refetchPool();
+    }
+  };
+
   const claim = () =>
     tx.run("claim", () =>
       writeContractAsync({
@@ -155,6 +201,29 @@ export const Allegiance: FC<AllegianceProps> = ({
           </span>
         )}
       </div>
+
+      {stage !== Stage.Ended && (
+        <div className="un-row" style={{ gap: 10 }}>
+          <input
+            className="un-input"
+            style={{ maxWidth: 140 }}
+            value={topUp}
+            placeholder="0"
+            onChange={(e) => setTopUp(e.target.value.replace(/[^0-9.]/g, ""))}
+          />
+          <button
+            type="button"
+            className="un-btn un-btn-ghost un-btn-sm"
+            disabled={tx.isBusy || !Number(topUp)}
+            onClick={() => void fund()}
+          >
+            {txLabel(tx.phase, `Add ${feeToken.symbol ?? "tokens"} to the pot`)}
+          </button>
+          <span className="un-fine">
+            {(pool as bigint | undefined) ? "Anyone can add to it." : "Empty — nothing rides on anyone's pick yet."}
+          </span>
+        </div>
+      )}
 
       {stage === Stage.Lobby && !committed && (
         <>
