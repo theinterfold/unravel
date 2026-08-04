@@ -24,6 +24,10 @@ import { Finalists } from "../components/finalists";
 import { MAX_TEAM_SIZE, RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
 import { useGameAddress } from "../utils/activeGame";
 import { useGameTx, txLabel } from "../hooks/useGameTx";
+import { useSideshows } from "../hooks/useSideshows";
+import { Immunity } from "../components/immunity";
+import { Graveyard } from "../components/graveyard";
+import { Allegiance } from "../components/allegiance";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
 import { describeGameError } from "../utils/errors";
 import { useAlerts } from "@/context/Alerts";
@@ -34,6 +38,7 @@ export default function GamePage() {
   const activeGame = useGameAddress();
   const { game, isLoading, error, refetch: refetchGame } = useGame();
   const tx = useGameTx();
+  const sideshows = useSideshows();
   const roundId = useCurrentRoundId();
   const { round } = useRound(roundId);
   const { writeContractAsync } = useWriteContract();
@@ -318,6 +323,20 @@ export default function GamePage() {
             legible rather than merely asserted. */}
         {round && <Ciphertexts e3Id={round.e3Id} />}
 
+        {/* Immediately above the sealed ballot, deliberately. The whole design is the gap between
+            what you say here and what you do below it, and putting them side by side is the
+            clearest way to make a player feel that. */}
+        {sideshows.immunity && game.stage === Stage.Playing && (
+          <Immunity
+            contract={sideshows.immunity}
+            alive={game.alive}
+            names={names}
+            self={address}
+            canVote={isAlive}
+            teamOf={teamOf}
+          />
+        )}
+
         {round && !round.settled && canVote && (
           <Ballot round={round} canVote={canVote} self={address} onSealed={markSealed} />
         )}
@@ -354,7 +373,29 @@ export default function GamePage() {
           openSeats={game.stage === Stage.Lobby ? Math.max(0, game.config.minPlayers - game.alive.length) : 0}
         />
 
+        {sideshows.graveyard && roundId !== undefined && game.jurors.length > 0 && (
+          <Graveyard
+            contract={sideshows.graveyard}
+            alive={game.alive}
+            names={names}
+            self={address}
+            isJuror={isJuror}
+            roundId={roundId}
+          />
+        )}
+
         {game.roundCount > 0 && <History roundCount={game.roundCount} players={allPlayers} />}
+
+        {sideshows.allegiance && (
+          <Allegiance
+            contract={sideshows.allegiance}
+            stage={game.stage}
+            candidates={game.stage === Stage.Lobby ? game.alive : [...game.alive, ...game.jurors]}
+            names={names}
+            self={address}
+            winner={game.winner === ZERO_ADDRESS ? undefined : game.winner}
+          />
+        )}
 
         {round && roundId !== undefined && (
           <Campaign

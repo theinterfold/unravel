@@ -7,6 +7,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {SurvivalGame} from "./SurvivalGame.sol";
 import {GameDeployer} from "./GameDeployer.sol";
 import {RosterToken} from "./RosterToken.sol";
+import {PublicImmunityVote} from "./PublicImmunityVote.sol";
+import {GraveyardMark} from "./GraveyardMark.sol";
+import {SecretAllegiance} from "./SecretAllegiance.sol";
 import {ICrispVotingPlugin} from "./interfaces/ICrispVotingPlugin.sol";
 
 /// @notice Creates lobbies.
@@ -50,6 +53,26 @@ contract GameFactory {
         address lifeToken,
         address juryToken
     );
+
+    /// @notice The side contracts created alongside a lobby. Emitted separately from
+    ///         `LobbyCreated` so that event's shape — which the frontend's lobby list decodes —
+    ///         does not change.
+    event SideshowsDeployed(
+        address indexed game, address indexed immunity, address graveyard, address allegiance
+    );
+
+    /// @notice The side contracts a lobby gets alongside the game itself.
+    /// @dev Recorded rather than derived: none of them is reachable from `SurvivalGame`, which
+    ///      knows only about its immunity source, and making the frontend reconstruct two addresses
+    ///      from logs to render a panel is a worse trade than one mapping.
+    struct Sideshows {
+        PublicImmunityVote immunity;
+        GraveyardMark graveyard;
+        SecretAllegiance allegiance;
+    }
+
+    /// @notice game => the contracts deployed with it.
+    mapping(address => Sideshows) public sideshowsOf;
 
     error ZeroAddress();
     /// @notice A lobby with an empty pot can never open a round, so the creator has to fill it.
@@ -103,9 +126,13 @@ contract GameFactory {
         RosterToken life = new RosterToken(string.concat(name, " Life"), "LIFE", address(this));
         RosterToken jury = new RosterToken(string.concat(name, " Jury"), "JURY", address(this));
 
+        // Deployed owned by this factory, not the creator, purely so `setImmunitySource` below can
+        // be called — it is `onlyOwner`, and the immunity contract cannot exist until the game has
+        // an address to point at. Ownership is handed to the creator at the end of this call, so
+        // the factory holds it for a few lines and never across a transaction boundary.
         game = deployer.deploy(
             SurvivalGame.InitParams({
-                owner: msg.sender,
+                owner: address(this),
                 plugin: plugin,
                 feeToken: feeToken,
                 lifeToken: life,
@@ -119,11 +146,31 @@ contract GameFactory {
         life.transferOwnership(address(game));
         jury.transferOwnership(address(game));
 
+        // The public counterweight to the secret ballot: every round the living vote, in the open
+        // and under their own names, for who cannot be eliminated — while the ballot that decides
+        // who *is* eliminated stays sealed. Wired here rather than left to the creator because a
+        // lobby without it is a strictly worse game, and "remember to call setImmunitySource" is
+        // not a thing anyone remembers.
+        PublicImmunityVote immunity = new PublicImmunityVote(game, life);
+        game.setImmunitySource(immunity);
+
+        // Neither of these touches the game — they read it and hold their own state. Deployed here
+        // so a lobby arrives complete: a mechanic that needs a second transaction to enable is a
+        // mechanic most lobbies will not have.
+        GraveyardMark graveyard = new GraveyardMark(game, jury);
+        SecretAllegiance allegiance = new SecretAllegiance(game, feeToken);
+        sideshowsOf[address(game)] =
+            Sideshows({immunity: immunity, graveyard: graveyard, allegiance: allegiance});
+
         // Routed through the factory because `fund` pulls from its own caller, and the game had no
         // address to approve until a moment ago. The creator approves this factory instead.
         feeToken.safeTransferFrom(msg.sender, address(this), funding);
         feeToken.forceApprove(address(game), funding);
         game.fund(funding);
+
+        // Last, so everything above could run as owner. From here the creator's powers are the
+        // narrow ones documented above: abandon a stuck round, sweep leftover funding.
+        game.transferOwnership(msg.sender);
 
         games.push(address(game));
 
@@ -135,6 +182,9 @@ contract GameFactory {
             config.minPlayers,
             address(life),
             address(jury)
+        );
+        emit SideshowsDeployed(
+            address(game), address(immunity), address(graveyard), address(allegiance)
         );
     }
 
