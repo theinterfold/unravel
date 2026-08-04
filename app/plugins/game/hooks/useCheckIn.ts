@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useReadContract, useWriteContract } from "wagmi";
 import type { Address } from "viem";
 import { useGameAddress } from "../utils/activeGame";
 import { SurvivalGameAbi } from "../artifacts/SurvivalGame";
+import { publicClient } from "../utils/client";
 
 export type CheckInState = {
   /// Consecutive rounds missed, mirroring `_applyForfeits`.
@@ -47,7 +49,11 @@ export function useCheckIn(
     query: { enabled: !!player, refetchInterval: pollMs },
   });
 
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { writeContractAsync } = useWriteContract();
+  // Tracked here rather than taken from wagmi: `isPending` covers signing only, and this hook now
+  // waits for the receipt too. Using it would re-enable the button while the check-in is still in
+  // flight, inviting a second one.
+  const [isPending, setPending] = useState(false);
 
   const seen = data === undefined ? 0 : Number(data as bigint);
   const round = roundId ?? 0;
@@ -63,14 +69,23 @@ export function useCheckIn(
     isPending,
     refetch: () => void refetch(),
     checkIn: async () => {
-      const hash = await writeContractAsync({
-        address: gameAddress,
-        abi: SurvivalGameAbi,
-        functionName: "checkIn",
-        args: [],
-      });
-      void refetch();
-      return hash;
+      setPending(true);
+      try {
+        const hash = await writeContractAsync({
+          address: gameAddress,
+          abi: SurvivalGameAbi,
+          functionName: "checkIn",
+          args: [],
+        });
+        // Waited on before refetching: `lastCheckIn` does not change until the transaction is
+        // mined, so refetching on send reads the old value and the UI keeps insisting you still
+        // owe a check-in — the one thing that gets a player eliminated for inactivity.
+        await publicClient.waitForTransactionReceipt({ hash });
+        void refetch();
+        return hash;
+      } finally {
+        setPending(false);
+      }
     },
   };
 }

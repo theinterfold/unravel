@@ -50,6 +50,8 @@ export const Campaign: FC<CampaignProps> = ({ round, canPost, self, closed }) =>
         pointer = `${INLINE_PREFIX}${body}`;
       }
 
+      // `post` now resolves on the receipt, so by here the Posted event exists and the feed's next
+      // poll will contain it. Announcing before that put the confirmation above a feed that did not.
       await post(pointer);
       setDraft("");
       addAlert("Posted.", { type: "success", timeout: 3000 });
@@ -89,7 +91,7 @@ export const Campaign: FC<CampaignProps> = ({ round, canPost, self, closed }) =>
               disabled={isPending || !draft.trim()}
               onClick={() => void submit()}
             >
-              {isPending ? "Posting…" : "Post"}
+              {isPending ? "Posting… (waiting for the chain)" : "Post"}
             </button>
             <span className="un-fine">
               Signed, permanent, and on the record.

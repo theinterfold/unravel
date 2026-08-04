@@ -23,6 +23,7 @@ import { useNotifications, useAnnounce } from "../hooks/useNotifications";
 import { Finalists } from "../components/finalists";
 import { MAX_TEAM_SIZE, RoundKind, Stage, ZERO_ADDRESS } from "../utils/gameTypes";
 import { useGameAddress } from "../utils/activeGame";
+import { useGameTx, txLabel } from "../hooks/useGameTx";
 import { shortAddress, sameAddress, tribe } from "../utils/tribes";
 import { describeGameError } from "../utils/errors";
 import { useAlerts } from "@/context/Alerts";
@@ -31,11 +32,11 @@ import type { Address } from "viem";
 export default function GamePage() {
   const { address } = useAccount();
   const activeGame = useGameAddress();
-  const { game, isLoading, error } = useGame();
+  const { game, isLoading, error, refetch: refetchGame } = useGame();
+  const tx = useGameTx();
   const roundId = useCurrentRoundId();
   const { round } = useRound(roundId);
-  const { writeContractAsync, isPending } = useWriteContract();
-  const { addAlert } = useAlerts();
+  const { writeContractAsync } = useWriteContract();
   const [team, setTeam] = useState(1);
   const now = useNow();
 
@@ -168,32 +169,31 @@ export default function GamePage() {
     !!round && !round.settled && now >= round.ballotClosesAt + game.config.tallyGrace;
   const isOwner = !!address && sameAddress(address, game.owner);
 
-  // Every write goes through here so a revert becomes a sentence rather than an unhandled promise
-  // rejection. Reverts are ordinary in this game — a full tribe, a lobby short of its floor, a round
-  // settled a second time — and none of them should surface as a crash.
-  const send = async (label: string, run: () => Promise<unknown>) => {
-    try {
-      await run();
-    } catch (e) {
-      console.error(`${label}:`, e);
-      addAlert(describeGameError(e), { type: "error" });
-    }
-  };
-
+  // Every write goes through `tx.run`, which waits for the receipt before reporting anything.
+  // Reverts are ordinary in this game — a full tribe, a lobby short of its floor, a round settled a
+  // second time — and none of them should surface as a crash or, worse, as success.
   const call = (functionName: "startGame" | "openRound" | "settleRound" | "abortRound") =>
-    send(functionName, () =>
+    tx.run(functionName, () =>
       writeContractAsync({ address: activeGame, abi: SurvivalGameAbi, functionName, args: [] })
-    );
+    ).then((ok) => {
+      // The chain has agreed by the time this runs, so refetching now shows the new state rather
+      // than the state from before the transaction.
+      if (ok) refetchGame();
+    });
 
   const joinTeam = () =>
-    send("join", () =>
-      writeContractAsync({
-        address: activeGame,
-        abi: SurvivalGameAbi,
-        functionName: "join",
-        args: [team],
-      })
-    );
+    tx
+      .run("join", () =>
+        writeContractAsync({
+          address: activeGame,
+          abi: SurvivalGameAbi,
+          functionName: "join",
+          args: [team],
+        })
+      )
+      .then((ok) => {
+        if (ok) refetchGame();
+      });
 
   const capacity = game.config.teamCount * MAX_TEAM_SIZE;
   // Seats stay open until someone starts, so the button unlocks at the floor rather than at a full
@@ -270,16 +270,16 @@ export default function GamePage() {
                   </option>
                 ))}
               </select>
-              <button type="button" className="un-btn" disabled={isPending || isAlive} onClick={() => void joinTeam()}>
-                {isAlive ? "You're in" : "Take a seat"}
+              <button type="button" className="un-btn" disabled={tx.isBusy || isAlive} onClick={() => void joinTeam()}>
+                {isAlive ? "You're in" : txLabel(tx.phase, "Take a seat")}
               </button>
               <button
                 type="button"
                 className="un-btn un-btn-ghost"
-                disabled={isPending || !canStart}
+                disabled={tx.isBusy || !canStart}
                 onClick={() => void call("startGame")}
               >
-                Start the game
+                {txLabel(tx.phase, "Start the game")}
               </button>
             </div>
           </section>
@@ -375,20 +375,20 @@ export default function GamePage() {
               <button
                 type="button"
                 className={pendingTally ? "un-btn" : "un-btn un-btn-ghost un-btn-sm"}
-                disabled={isPending}
+                disabled={tx.isBusy}
                 onClick={() => void call("settleRound")}
               >
-                Settle the round
+                {txLabel(tx.phase, "Settle the round")}
               </button>
             )}
             {round.settled && game.stage !== Stage.Ended && (
               <button
                 type="button"
                 className="un-btn un-btn-ghost un-btn-sm"
-                disabled={isPending}
+                disabled={tx.isBusy}
                 onClick={() => void call("openRound")}
               >
-                Open the next round
+                {txLabel(tx.phase, "Open the next round")}
               </button>
             )}
             <span className="un-fine">
@@ -418,10 +418,10 @@ export default function GamePage() {
               <button
                 type="button"
                 className="un-btn un-btn-danger"
-                disabled={isPending}
+                disabled={tx.isBusy}
                 onClick={() => void call("abortRound")}
               >
-                Abandon this round
+                {txLabel(tx.phase, "Abandon this round")}
               </button>
               <span className="un-fine">Only you can do this — you created the lobby.</span>
             </div>
@@ -501,7 +501,8 @@ const CancelledLobby = ({
   feeToken: { format: (v: bigint | undefined) => string | undefined; symbol?: string };
 }) => {
   const { addAlert } = useAlerts();
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { writeContractAsync } = useWriteContract();
+  const tx = useGameTx();
   const gameAddress = useGameAddress();
 
   const { data: refund, refetch } = useReadContract({
@@ -515,18 +516,19 @@ const CancelledLobby = ({
   const owed = (refund as bigint | undefined) ?? 0n;
 
   const claim = async () => {
-    try {
-      await writeContractAsync({
+    const ok = await tx.run("claimRefund", () =>
+      writeContractAsync({
         address: gameAddress,
         abi: SurvivalGameAbi,
         functionName: "claimRefund",
         args: [],
-      });
+      })
+    );
+    // Announced and refetched only once the receipt is in, so "Refunded." cannot appear above a
+    // balance that has not moved.
+    if (ok) {
       void refetch();
       addAlert("Refunded.", { type: "success", timeout: 3000 });
-    } catch (e) {
-      console.error("claimRefund:", e);
-      addAlert(describeGameError(e), { type: "error" });
     }
   };
 
@@ -540,8 +542,8 @@ const CancelledLobby = ({
       </p>
       {owed > 0n ? (
         <div className="un-row">
-          <button type="button" className="un-btn" disabled={isPending} onClick={() => void claim()}>
-            {isPending ? "Claiming…" : `Claim ${feeToken.format(owed) ?? owed.toString()} ${feeToken.symbol ?? ""}`}
+          <button type="button" className="un-btn" disabled={tx.isBusy} onClick={() => void claim()}>
+            {txLabel(tx.phase, `Claim ${feeToken.format(owed) ?? owed.toString()} ${feeToken.symbol ?? ""}`)}
           </button>
         </div>
       ) : (

@@ -71,25 +71,45 @@ export function useCampaignFeed(round: number | undefined, pollMs = 15_000) {
 /// Publishing a campaign post, and the public liveness check-in.
 export function useCampaignActions() {
   const gameAddress = useGameAddress();
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { writeContractAsync } = useWriteContract();
+  // The whole lifecycle, not just signing: these now wait for the receipt, and wagmi's `isPending`
+  // would clear the moment the wallet returned — re-enabling Post while the post is still in flight.
+  const [isPending, setPending] = useState(false);
+
+  /// Sends and waits. The feed is read from `Posted` events, which do not exist until the
+  /// transaction is mined, so announcing on send put "Posted." above a feed without the post in it.
+  const sendAndWait = async (write: () => Promise<`0x${string}`>) => {
+    setPending(true);
+    try {
+      const hash = await write();
+      await publicClient.waitForTransactionReceipt({ hash });
+      return hash;
+    } finally {
+      setPending(false);
+    }
+  };
 
   const post = (cid: string) =>
-    writeContractAsync({
-      address: gameAddress,
-      abi: SurvivalGameAbi,
-      functionName: "post",
-      args: [cid],
-    });
+    sendAndWait(() =>
+      writeContractAsync({
+        address: gameAddress,
+        abi: SurvivalGameAbi,
+        functionName: "post",
+        args: [cid],
+      })
+    );
 
   // Liveness has to be an explicit signal: ballots are secret and masks make slot activity
   // meaningless, so nobody — including the contract — can tell who actually voted.
   const checkIn = () =>
-    writeContractAsync({
-      address: gameAddress,
-      abi: SurvivalGameAbi,
-      functionName: "checkIn",
-      args: [],
-    });
+    sendAndWait(() =>
+      writeContractAsync({
+        address: gameAddress,
+        abi: SurvivalGameAbi,
+        functionName: "checkIn",
+        args: [],
+      })
+    );
 
   return { post, checkIn, isPending };
 }

@@ -1,3 +1,5 @@
+import { publicClient } from "../utils/client";
+import { useState } from "react";
 import { useReadContract, useWriteContract } from "wagmi";
 import type { Address } from "viem";
 import { PUB_NAME_REGISTRY_ADDRESS } from "@/constants";
@@ -42,15 +44,25 @@ export function displayName(address: string | undefined, names: Record<string, s
 
 /// Setting your own name.
 export function useSetName() {
-  const { writeContractAsync, isPending } = useWriteContract();
+  const { writeContractAsync } = useWriteContract();
+  // Covers the receipt too — a name that has not been mined is not a name anyone else can see.
+  const [isPending, setPending] = useState(false);
 
-  const setName = (name: string) =>
-    writeContractAsync({
-      address: PUB_NAME_REGISTRY_ADDRESS,
-      abi: NameRegistryAbi,
-      functionName: "setName",
-      args: [name],
-    });
+  const setName = async (name: string) => {
+    setPending(true);
+    try {
+      const hash = await writeContractAsync({
+        address: PUB_NAME_REGISTRY_ADDRESS,
+        abi: NameRegistryAbi,
+        functionName: "setName",
+        args: [name],
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      return hash;
+    } finally {
+      setPending(false);
+    }
+  };
 
   return { setName, isPending, configured: !!PUB_NAME_REGISTRY_ADDRESS };
 }
