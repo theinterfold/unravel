@@ -85,9 +85,9 @@ export default function GamePage() {
             <div className="un-label-dim">No lobby selected</div>
             <h2 className="un-verdict">Pick a game, or start one.</h2>
             <p className="un-prose">
-              Every lobby is its own game with its own pot, funded by the people who join it. Nobody
-              runs them — anyone can start one, anyone can join, and anyone can start the game once
-              it is full enough.
+              Every lobby is its own game with its own pot, put up by whoever started it. Nobody runs
+              them — anyone can start one, joining is free, and anyone can begin the game once it is
+              full enough.
             </p>
           </section>
           <Lobbies />
@@ -157,6 +157,17 @@ export default function GamePage() {
   const settleDue = !!round && !round.settled && now >= round.ballotClosesAt && !!pendingTally;
   const takeover = isAlive && shouldTakeOver(checkIn, secondsLeft);
 
+  // The escape hatch for a round the committee never finished. `settleRound` waits on a tally that
+  // in that case never arrives, so without this the game is bricked — which is exactly what
+  // happened when a coordinator stopped indexing rounds and one sat unsettled forever.
+  //
+  // Mirrors `abortRound`: owner only, and only once `ballotClosesAt + tallyGrace` has passed. The
+  // deadline matters — before it, a tally may still be coming, and abandoning a round whose votes
+  // were about to land would throw away real ballots.
+  const abortDue =
+    !!round && !round.settled && now >= round.ballotClosesAt + game.config.tallyGrace;
+  const isOwner = !!address && sameAddress(address, game.owner);
+
   // Every write goes through here so a revert becomes a sentence rather than an unhandled promise
   // rejection. Reverts are ordinary in this game — a full tribe, a lobby short of its floor, a round
   // settled a second time — and none of them should surface as a crash.
@@ -169,7 +180,7 @@ export default function GamePage() {
     }
   };
 
-  const call = (functionName: "startGame" | "openRound" | "settleRound") =>
+  const call = (functionName: "startGame" | "openRound" | "settleRound" | "abortRound") =>
     send(functionName, () =>
       writeContractAsync({ address: activeGame, abi: SurvivalGameAbi, functionName, args: [] })
     );
@@ -386,6 +397,35 @@ export default function GamePage() {
                 : "Anyone can settle a round or open the next one. It is a clock, not a privilege."}
             </span>
           </div>
+        )}
+
+        {/* The only way out of a round the committee never finished. Unlike settling and opening,
+            this one is the creator's alone: it throws a round away, and a round that is merely slow
+            looks exactly like a round that is dead. */}
+        {abortDue && isOwner && (
+          <section className="un-panel un-stack" style={{ gap: 10 }}>
+            <div className="un-label-dim">Round {round.id + 1} is overdue</div>
+            <p className="un-prose">
+              The ballot closed and the grace period has passed without a tally. Settling waits on
+              counts that are not coming, so the game cannot move on by itself.
+            </p>
+            <p className="un-fine" style={{ maxWidth: "68ch" }}>
+              Abandoning it discards this round — nobody is eliminated — and the next round re-runs
+              the same stage with the same players. Any ballots that were cast are lost, so only do
+              this once you are satisfied the committee has actually failed rather than lagged.
+            </p>
+            <div className="un-row">
+              <button
+                type="button"
+                className="un-btn un-btn-danger"
+                disabled={isPending}
+                onClick={() => void call("abortRound")}
+              >
+                Abandon this round
+              </button>
+              <span className="un-fine">Only you can do this — you created the lobby.</span>
+            </div>
+          </section>
         )}
       </div>
     </main>

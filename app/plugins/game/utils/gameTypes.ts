@@ -90,6 +90,9 @@ export type GameState = {
   winner: Address;
   pot: bigint;
   roundCount: number;
+  /// The lobby's creator. Their powers are deliberately narrow: abandon a round the committee never
+  /// settled, and sweep leftover funding once the game is over or cancelled.
+  owner: Address;
 };
 
 /// Derives the current phase of a round from the chain clock.

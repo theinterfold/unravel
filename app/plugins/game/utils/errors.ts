@@ -45,6 +45,12 @@ const ERC20_ERRORS: Record<string, string> = {
   "0xfb8f41b2":
     "The token approval did not cover this. Approve the amount again and retry — if the first approval is still pending, wait for it to confirm.",
   "0xe450d38c": "You do not hold enough of the fee token for this.",
+  // CRISPProgram.InvalidTallyLength. Reached whenever `decodeTally` is called before the committee
+  // publishes — it decodes empty output, gets a zero-length array and reverts, rather than
+  // returning nothing. So this, not `TallyNotPublished`, is what settling too early actually
+  // produces; the game's own error is unreachable through this path.
+  "0xddbe5662":
+    "The committee has not published the counts for this round yet. Settling works as soon as it does — and if it never does, the lobby's creator can abandon the round.",
 };
 
 function describe(name: string, args: readonly unknown[]): string | undefined {
@@ -80,6 +86,8 @@ function describe(name: string, args: readonly unknown[]): string | undefined {
       return "The ballot is still open. A round cannot be settled while people can still vote.";
     case "TallyNotPublished":
       return "The committee has not published the counts yet. The round settles as soon as it does.";
+    case "OwnableUnauthorizedAccount":
+      return "Only the lobby's creator can do that.";
     case "TallyLengthMismatch":
       return `The tally came back with ${n(1)} counts but this round has ${n(0)} options — the round cannot be settled from it.`;
     case "NotAVoter":

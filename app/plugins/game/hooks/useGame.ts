@@ -26,6 +26,10 @@ export function useGame(pollMs = 10_000) {
       { ...gameContract, functionName: "winner" },
       { ...gameContract, functionName: "pot" },
       { ...gameContract, functionName: "roundCount" },
+      // Only used to decide whether to offer `abortRound`, which is owner-gated. Folded in here
+      // rather than read separately: it never changes, and one more entry in a multicall is free
+      // where another hook would be another round trip on every poll.
+      { ...gameContract, functionName: "owner" },
     ],
     query: { enabled: !!gameContract.address, refetchInterval: pollMs },
   });
@@ -39,6 +43,7 @@ export function useGame(pollMs = 10_000) {
         winner: data[4].result as Address,
         pot: data[5].result as bigint,
         roundCount: Number(data[6].result as bigint),
+        owner: data[7].result as Address,
       }
     : undefined;
 

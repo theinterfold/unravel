@@ -1,8 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Address } from "viem";
-import { PUB_GAME_ADDRESS } from "@/constants";
+import { PUB_GAME_ADDRESS, PUB_GAME_FACTORY_ADDRESS } from "@/constants";
 
-const KEY = "unravel.activeGame";
+/// Scoped to the factory, because a lobby only exists within one deployment.
+///
+/// A bare key survived redeployment: the browser restored a game from the previous factory, every
+/// read against it failed, and the app looked broken in a way no amount of redeploying fixed —
+/// the stale value was in localStorage, not in any .env. Keying by factory means a new deployment
+/// starts clean and switching back to an old one restores what you were watching.
+const KEY = `unravel.activeGame.${PUB_GAME_FACTORY_ADDRESS.toLowerCase()}`;
 
 type ActiveGame = {
   /// The game every hook reads. Never the zero address unless nothing is configured at all.
@@ -31,6 +37,10 @@ export function ActiveGameProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
+      // The pre-scoping key, dropped on sight. Anyone who used the app before lobbies were keyed by
+      // factory still has a lobby address from an older deployment sitting here.
+      window.localStorage.removeItem("unravel.activeGame");
+
       const stored = window.localStorage.getItem(KEY);
       if (stored && /^0x[a-fA-F0-9]{40}$/.test(stored)) {
         setAddress(stored as Address);

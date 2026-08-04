@@ -50,14 +50,14 @@ fi
 # ─── Sepolia defaults (from the-interfold-governance/contracts/.env.example) ─────────────────────
 
 RPC="${RPC_URL:-https://ethereum-sepolia-rpc.publicnode.com}"
-INTERFOLD_ADDRESS="${INTERFOLD_ADDRESS:-0x13fA9Ecff929b4C86a2FCA4AEE91572EDee34486}"
-CRISP_PROGRAM="${CRISP_PROGRAM_ADDRESS:-0x12f7a216aEaB6620dC3488754970b66c63ECdD2C}"
-FEE_TOKEN="${FEE_TOKEN_ADDRESS:-0xb743cDE9fbC72Ba06654267d1970be72A4Ea1445}"
+INTERFOLD_ADDRESS="${INTERFOLD_ADDRESS:-0x49d36AFCC55307C878C83757f8Be309850AEF822}"
+CRISP_PROGRAM="${CRISP_PROGRAM_ADDRESS:-0xE5c271320f3071A9744dE808f856D333E97c2fb8}"
+FEE_TOKEN="${FEE_TOKEN_ADDRESS:-0x282808feCC25985b1D3d87aa8D149c668609AaaE}"
 CRISP_SERVER="${CRISP_SERVER_URL:-https://private-crisp.theinterfold.com}"
 # Testnet faucet. `faucet()` tops up FOLD and the fee token independently, and reverts with
 # "You have enough tokens" when neither is below its threshold — so a repeat call is harmless but
 # not silent.
-FAUCET="${FAUCET_ADDRESS:-0x47Ef2F9764623Fd6154F389BA5Ccc54874F6EeD3}"
+FAUCET="${FAUCET_ADDRESS:-0x7bD74f4Ff32b075C882d57763fc8eD28451b8d3f}"
 COMMITTEE_SIZE="${COMMITTEE_SIZE:-0}"
 PARAM_SET="${PARAM_SET:-0}"
 COMPUTE_PROVIDER_PARAMS="${COMPUTE_PROVIDER_PARAMS:-0x7b226e616d65223a225249534330222c22706172616c6c656c223a66616c73652c2262617463685f73697a65223a347d}"
@@ -354,7 +354,12 @@ if [ "$DRY_RUN" = "1" ]; then
   done
   echo "  joined $(cast call "$GAME" 'aliveCount()(uint256)' --rpc-url "$RPC" | awk '{print $1}')"
 
-  if ! OUT="$(cast send "$GAME" "startGame()" --gas-limit 3000000 \
+  # 8M, not 3M: the request into Interfold alone costs ~1M on the current deployment, and the rest
+  # of `startGame` — roster setup, the proposal, the fee transfer — sits on top. An out-of-gas in the
+  # plugin's low-level call to `request` returns *empty* revert data, which surfaces as
+  # `InterfoldRequestFailed` and reads exactly like an ABI mismatch. Cheap to over-provision; the
+  # unused gas is refunded.
+  if ! OUT="$(cast send "$GAME" "startGame()" --gas-limit 8000000 \
       --rpc-url "$RPC" --private-key "$PRIVATE_KEY" 2>&1)"; then
     echo "$OUT" | tail -20 >&2
     fail "startGame reverted — the round could not be opened against the real Interfold.
@@ -362,7 +367,18 @@ if [ "$DRY_RUN" = "1" ]; then
        deployment at $INTERFOLD_ADDRESS (a single extra struct field changes the selector)."
   fi
   # `cast send` exits 0 on a reverted transaction, so the receipt status has to be read explicitly.
-  echo "$OUT" | grep -q "status  *1" || { echo "$OUT" | tail -20 >&2; fail "startGame transaction reverted"; }
+  if ! echo "$OUT" | grep -q "status  *1"; then
+    echo "$OUT" | tail -20 >&2
+    # Replay it with tracing before the fork is torn down. The revert selectors this path produces
+    # (`InterfoldRequestFailed`, and anything empty) name the wrapper rather than the cause, so the
+    # trace is the only thing that identifies which call actually failed.
+    HASH="$(echo "$OUT" | awk '/^transactionHash/ {print $2}')"
+    if [ -n "${HASH:-}" ]; then
+      echo "--- trace ---" >&2
+      cast run "$HASH" --rpc-url "$RPC" 2>&1 | tail -40 >&2
+    fi
+    fail "startGame transaction reverted"
+  fi
 
   # Nine fields, and the order matters: `e3Id` is third, after `kind` and `proposalId`. Decoding a
   # shorter signature and taking the first line silently reads the round *kind* instead.
