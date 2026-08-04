@@ -92,8 +92,13 @@ export const Allegiance: FC<AllegianceProps> = ({
     const bytes = new Uint8Array(32);
     crypto.getRandomValues(bytes);
     const salt = `0x${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}` as Hex;
+    // Bound to the committer, not just the pick: commitments are public, so an unbound hash could
+    // be copied and replayed by anyone once the original revealed it.
     const hash = keccak256(
-      encodeAbiParameters([{ type: "address" }, { type: "bytes32" }], [choice, salt])
+      encodeAbiParameters(
+        [{ type: "address" }, { type: "address" }, { type: "bytes32" }],
+        [self, choice, salt]
+      )
     );
 
     // Saved *before* the transaction, not after. If it lands and the write did not happen, the

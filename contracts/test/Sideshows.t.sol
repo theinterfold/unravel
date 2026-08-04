@@ -187,9 +187,9 @@ contract SideshowsTest is Test {
 
         bytes32 salt = keccak256("s");
         vm.prank(players[0]);
-        side.allegiance.commit(keccak256(abi.encode(players[3], salt)));
+        side.allegiance.commit(keccak256(abi.encode(players[0], players[3], salt)));
         vm.prank(players[1]);
-        side.allegiance.commit(keccak256(abi.encode(players[0], salt)));
+        side.allegiance.commit(keccak256(abi.encode(players[1], players[0], salt)));
 
         // Anyone can fund; here the creator does.
         fee.mint(creator, 100e6);
@@ -247,13 +247,65 @@ contract SideshowsTest is Test {
         _join(game, 3, 2);
 
         vm.prank(players[0]);
-        side.allegiance.commit(keccak256(abi.encode(players[3], keccak256("right"))));
+        side.allegiance.commit(keccak256(abi.encode(players[0], players[3], keccak256("right"))));
 
         _endGameWithWinner(game, players[3]);
 
         vm.prank(players[0]);
         vm.expectRevert(SecretAllegiance.BadReveal.selector);
         side.allegiance.reveal(players[3], keccak256("wrong"));
+    }
+
+    /// @dev Commitments are public. Binding one to its committer is what stops a copy attack:
+    ///      store someone else's hash, wait for them to reveal `(pick, salt)` in the open, then
+    ///      replay those values against your own copy and win with no foresight at all.
+    function test_allegiance_aCopiedCommitmentCannotBeReplayed() public {
+        (SurvivalGame game, GameFactory.Sideshows memory side) = _create();
+        _join(game, 0, 1);
+        _join(game, 1, 2);
+        _join(game, 2, 1);
+        _join(game, 3, 2);
+
+        bytes32 salt = keccak256("s");
+        bytes32 commitment = keccak256(abi.encode(players[0], players[3], salt));
+
+        vm.prank(players[0]);
+        side.allegiance.commit(commitment);
+        // The thief copies the hash straight off the chain.
+        vm.prank(players[1]);
+        side.allegiance.commit(commitment);
+
+        _endGameWithWinner(game, players[3]);
+
+        vm.prank(players[0]);
+        side.allegiance.reveal(players[3], salt);
+
+        // The preimage is now public, and it is still useless to anyone else.
+        vm.prank(players[1]);
+        vm.expectRevert(SecretAllegiance.BadReveal.selector);
+        side.allegiance.reveal(players[3], salt);
+
+        assertEq(side.allegiance.winnerCount(), 1, "only the genuine caller counts");
+    }
+
+    /// @dev Backing yourself is not a hidden motive, and would pay the winner twice from a pool the
+    ///      losers helped fund.
+    function test_allegiance_youCannotBackYourself() public {
+        (SurvivalGame game, GameFactory.Sideshows memory side) = _create();
+        _join(game, 0, 1);
+        _join(game, 1, 2);
+        _join(game, 2, 1);
+        _join(game, 3, 2);
+
+        bytes32 salt = keccak256("self");
+        vm.prank(players[3]);
+        side.allegiance.commit(keccak256(abi.encode(players[3], players[3], salt)));
+
+        _endGameWithWinner(game, players[3]);
+
+        vm.prank(players[3]);
+        vm.expectRevert(SecretAllegiance.SelfPick.selector);
+        side.allegiance.reveal(players[3], salt);
     }
 
     /// @dev Unclaimed money must not strand. Nobody backing the winner is the ordinary case.

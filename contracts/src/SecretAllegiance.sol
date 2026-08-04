@@ -21,8 +21,13 @@ import {SurvivalGame} from "./SurvivalGame.sol";
 ///      a reason to care who wins.
 ///
 ///      **Why commit-reveal.** A pick stored in the clear is readable by everyone, which is the
-///      opposite of the point. The commitment is `keccak256(abi.encode(pick, salt))`; the salt is
-///      not optional, because a roster of ten addresses is brute-forced instantly without one.
+///      opposite of the point. The commitment is `keccak256(abi.encode(player, pick, salt))`.
+///
+///      Both extra fields are load-bearing. The salt stops a ten-address roster being brute-forced
+///      instantly. Binding the player stops a copy attack: commitments are public on chain, so
+///      without it anyone could store a copy of someone else's hash, wait for them to reveal
+///      `(pick, salt)` in the open, and replay those same values against their own copy — winning
+///      with no foresight whatsoever and diluting the share of whoever actually called it.
 ///
 ///      **Why a separate pot.** The prize is the game's, and `SurvivalGame` pays it out whole at
 ///      the jury round. Carving a share out would mean touching the state machine that runs the
@@ -64,6 +69,7 @@ contract SecretAllegiance {
     error RevealClosed();
     error NothingCommitted();
     error BadReveal();
+    error SelfPick();
     error NotAWinner(address account);
     error AlreadyClaimed();
     error RevealStillOpen(uint64 until);
@@ -86,7 +92,7 @@ contract SecretAllegiance {
     /// @dev Before the game starts, so nobody can back the obvious survivor once play reveals who
     ///      that is. One commitment each, unchangeable — a pick you can revise is not a commitment,
     ///      it is a running prediction, and it would let a player hedge into whoever is winning.
-    /// @param commitment `keccak256(abi.encode(pick, salt))`.
+    /// @param commitment `keccak256(abi.encode(msg.sender, pick, salt))`.
     function commit(bytes32 commitment) external {
         if (game.stage() != SurvivalGame.Stage.Lobby) revert LobbyClosed();
         if (!game.isPlayer(msg.sender)) revert NotAPlayer(msg.sender);
@@ -106,7 +112,10 @@ contract SecretAllegiance {
 
         bytes32 commitment = commitmentOf[msg.sender];
         if (commitment == bytes32(0)) revert NothingCommitted();
-        if (keccak256(abi.encode(pick, salt)) != commitment) revert BadReveal();
+        if (keccak256(abi.encode(msg.sender, pick, salt)) != commitment) revert BadReveal();
+        // Backing yourself is not a hidden motive — everyone already knows you want to win — and it
+        // would simply pay the winner a second time out of a pool the losers helped fund.
+        if (pick == msg.sender) revert SelfPick();
 
         commitmentOf[msg.sender] = bytes32(0);
         revealedPick[msg.sender] = pick;
